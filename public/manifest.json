@@ -1,0 +1,9 @@
+{
+  "short_name": "DataHub",
+  "name": "DataHub Data Sales Platform",
+  "icons": [{ "src": "logo.svg", "sizes": "any", "type": "image/svg+xml" }],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#a9672b",
+  "background_color": "#fbf7ee"
+}

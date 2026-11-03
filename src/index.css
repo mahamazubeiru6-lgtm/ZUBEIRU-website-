@@ -1,0 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap');
+
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--mainBg, #fbf7ee); }
+body { margin: 0; min-height: 100vh; background: var(--mainBg, #fbf7ee); color: var(--text, #4c4034); font-family: 'DM Sans', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; }
+img { max-width: 100%; }
+::selection { background: var(--activeBg); color: var(--heading); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--borderStrong); border: 3px solid var(--mainBg); border-radius: 999px; }
+
