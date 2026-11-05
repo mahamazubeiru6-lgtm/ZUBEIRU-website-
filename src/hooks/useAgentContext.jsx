@@ -69,8 +69,35 @@ export function getOwnStoreSlug(user) {
       user?.agent_profile?.sub_agent_store_url ||
       user?.agent_profile?.store_url ||
       user?.store_url ||
+      (user?.role === "AGENT" ? user?.username : null) ||
       null
   );
+}
+
+export function deriveSidebarStore({
+  user,
+  storeContext,
+  fullOwnStoreUrl,
+  fullCurrentStoreUrl,
+}) {
+  const usesOwnStore = Boolean(
+    fullOwnStoreUrl &&
+      (user?.role === "AGENT" || user?.role === "SUB_AGENT")
+  );
+  const url = usesOwnStore ? fullOwnStoreUrl : fullCurrentStoreUrl;
+  if (!url) return null;
+
+  return {
+    url,
+    isOwnStore: usesOwnStore,
+    shopName: usesOwnStore
+      ? user?.sub_agent_profile?.shop_name ||
+        user?.agent_profile?.shop_name ||
+        user?.username ||
+        "My Store"
+      : storeContext?.shopName || storeContext?.storeUrl || "Storefront",
+    role: usesOwnStore ? user?.role : storeContext?.role || null,
+  };
 }
 
 export function deriveStoreAccess({ user, isAuthenticated, storeContext }) {
@@ -249,6 +276,20 @@ export function AgentContextProvider({ children }) {
     () => buildStoreUrl(access.ownStoreSlug),
     [access.ownStoreSlug]
   );
+  const fullCurrentStoreUrl = useMemo(
+    () => buildStoreUrl(access.currentStoreSlug),
+    [access.currentStoreSlug]
+  );
+  const sidebarStore = useMemo(
+    () =>
+      deriveSidebarStore({
+        user,
+        storeContext,
+        fullOwnStoreUrl,
+        fullCurrentStoreUrl,
+      }),
+    [user, storeContext, fullOwnStoreUrl, fullCurrentStoreUrl]
+  );
 
   const value = useMemo(
     () => ({
@@ -259,6 +300,8 @@ export function AgentContextProvider({ children }) {
       loading,
       accessLoading: loading,
       fullOwnStoreUrl,
+      fullCurrentStoreUrl,
+      sidebarStore,
       refreshStoreContext,
       ...access,
     }),
@@ -269,6 +312,8 @@ export function AgentContextProvider({ children }) {
       isValidSubdomain,
       loading,
       fullOwnStoreUrl,
+      fullCurrentStoreUrl,
+      sidebarStore,
       refreshStoreContext,
       access,
     ]

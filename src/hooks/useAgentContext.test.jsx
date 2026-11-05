@@ -1,5 +1,6 @@
 import {
   buildStoreContext,
+  deriveSidebarStore,
   deriveStoreAccess,
   normalizeStoreSlug,
 } from "./useAgentContext";
@@ -15,7 +16,39 @@ const agentStore = buildStoreContext({
 });
 
 test("normalizes full storefront URLs to their store slug", () => {
-  expect(normalizeStoreSlug("https://Agent-Shop.lvh.me/")) .toBe("agent-shop");
+  expect(normalizeStoreSlug("https://Agent-Shop.lvh.me/")).toBe("agent-shop");
+});
+
+test("the sidebar shares the visitor's own store before the current store", () => {
+  const ownStore = deriveSidebarStore({
+    user: {
+      role: "AGENT",
+      username: "agent-user",
+      agent_profile: { shop_name: "My Shop" },
+    },
+    storeContext: agentStore,
+    fullOwnStoreUrl: "https://my-shop.lvh.me",
+    fullCurrentStoreUrl: "https://agent-shop.lvh.me",
+  });
+  const visitorStore = deriveSidebarStore({
+    user: null,
+    storeContext: agentStore,
+    fullOwnStoreUrl: null,
+    fullCurrentStoreUrl: "https://agent-shop.lvh.me",
+  });
+
+  expect(ownStore).toMatchObject({
+    url: "https://my-shop.lvh.me",
+    isOwnStore: true,
+    shopName: "My Shop",
+    role: "AGENT",
+  });
+  expect(visitorStore).toMatchObject({
+    url: "https://agent-shop.lvh.me",
+    isOwnStore: false,
+    shopName: "Agent Shop",
+    role: "AGENT",
+  });
 });
 
 test("agents receive tools only on their own storefront", () => {

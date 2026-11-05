@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
+  ArrowUpRight,
   Bell,
+  Check,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  Copy,
   CreditCard,
   Database,
   ExternalLink,
@@ -14,6 +17,7 @@ import {
   Moon,
   PackageOpen,
   ReceiptText,
+  Share2,
   Store,
   Sun,
   UserRoundPlus,
@@ -24,6 +28,7 @@ import {
 import { useAgentContext } from "../../hooks/useAgentContext";
 import { useTheme } from "../../hooks/useTheme";
 import { useAuth } from "../../providers/AuthProvider";
+import { useToast } from "../../providers/ToastProvider";
 
 const siteName = process.env.REACT_APP_SITE_NAME || "DataHub";
 
@@ -153,25 +158,84 @@ export default function Layout({ children }) {
     canUseRoleTools,
     canBecomeSubAgent,
     fullOwnStoreUrl,
-    storeContext,
+    onMainSite,
+    sidebarStore,
   } = useAgentContext();
   const { theme, updateTheme } = useTheme();
+  const { showToast } = useToast();
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [copiedStoreUrl, setCopiedStoreUrl] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const links = useMemo(
     () => linksFor(user, { canUseRoleTools, canBecomeSubAgent }),
     [user, canUseRoleTools, canBecomeSubAgent]
   );
-  const showOwnStoreLink = Boolean(
+  const showGoToStoreHint = Boolean(
     user &&
       (user.role === "AGENT" || user.role === "SUB_AGENT") &&
       fullOwnStoreUrl &&
       !canUseRoleTools
   );
+  const storeRoleLabel =
+    sidebarStore?.role === "SUB_AGENT"
+      ? "Sub-agent"
+      : sidebarStore?.role === "AGENT"
+        ? "Agent"
+        : null;
+  const storeUrlLabel = sidebarStore?.url
+    ?.replace(/^https?:\/\//, "")
+    .replace(/\/$/, "");
 
   useEffect(() => setOpen(false), [location.pathname]);
+
+  useEffect(() => {
+    if (!copiedStoreUrl) return undefined;
+    const timer = window.setTimeout(() => setCopiedStoreUrl(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copiedStoreUrl]);
+
+  const handleCopyStoreUrl = useCallback(async () => {
+    if (!sidebarStore?.url) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(sidebarStore.url);
+      setCopiedStoreUrl(true);
+      showToast("Store URL copied", "success");
+    } catch {
+      window.prompt("Copy this store URL:", sidebarStore.url);
+    }
+  }, [sidebarStore, showToast]);
+
+  const handleOpenStoreUrl = useCallback(() => {
+    if (sidebarStore?.url) {
+      window.open(sidebarStore.url, "_blank", "noopener,noreferrer");
+    }
+  }, [sidebarStore]);
+
+  const handleShareStoreUrl = useCallback(async () => {
+    if (!sidebarStore?.url) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${sidebarStore.shopName} - ${siteName}`,
+          text: `Visit ${sidebarStore.shopName} on ${siteName}.`,
+          url: sidebarStore.url,
+        });
+        return;
+      } catch (error) {
+        if (error.name === "AbortError") return;
+      }
+    }
+    await handleCopyStoreUrl();
+  }, [sidebarStore, handleCopyStoreUrl]);
+
+  const handleGoToOwnStore = useCallback(() => {
+    if (fullOwnStoreUrl) {
+      window.open(fullOwnStoreUrl, "_blank", "noopener,noreferrer");
+    }
+  }, [fullOwnStoreUrl]);
 
   const signOut = async () => {
     await logout();
@@ -230,28 +294,58 @@ export default function Layout({ children }) {
           </button>
         </div>
 
-        {storeContext && (
-          <div className="store-context-card" title={storeContext.shopName || "Storefront"}>
-            <Store size={17} />
-            <span>
-              <small>Browsing store</small>
-              <strong>{storeContext.shopName || storeContext.storeUrl}</strong>
-            </span>
-          </div>
+        {sidebarStore && !collapsed && (
+          <section className="store-link-card" aria-label="Store link">
+              <div className="store-link-heading">
+                <span className="store-link-icon">
+                  <Store size={16} />
+                </span>
+                <span className="store-link-name">
+                  <small>
+                    {sidebarStore.isOwnStore ? "Your store" : "Browsing store"}
+                  </small>
+                  <strong>{sidebarStore.shopName}</strong>
+                </span>
+                {storeRoleLabel && (
+                  <span className="store-role-badge">{storeRoleLabel}</span>
+                )}
+              </div>
+
+              <div className="store-link-url-row">
+                <span className="store-link-url" title={sidebarStore.url}>
+                  {storeUrlLabel}
+                </span>
+                <div className="store-link-actions">
+                  <button
+                    type="button"
+                    onClick={handleCopyStoreUrl}
+                    title="Copy store URL"
+                    aria-label="Copy store URL"
+                  >
+                    {copiedStoreUrl ? <Check size={13} /> : <Copy size={13} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenStoreUrl}
+                    title="Open store in a new tab"
+                    aria-label="Open store in a new tab"
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleShareStoreUrl}
+                    title="Share store"
+                    aria-label="Share store"
+                  >
+                    <Share2 size={13} />
+                  </button>
+                </div>
+              </div>
+          </section>
         )}
 
         <nav>
-          {showOwnStoreLink && (
-            <a
-              className="nav-item own-store-link"
-              href={fullOwnStoreUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <ExternalLink size={19} />
-              <span>Open my store tools</span>
-            </a>
-          )}
           {links.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
@@ -264,6 +358,37 @@ export default function Layout({ children }) {
               <span>{label}</span>
             </NavLink>
           ))}
+
+          {showGoToStoreHint &&
+            (collapsed ? (
+              <button
+                type="button"
+                className="store-access-hint-collapsed"
+                onClick={handleGoToOwnStore}
+                title="Go to my store"
+                aria-label="Go to my store"
+              >
+                <Store size={17} />
+              </button>
+            ) : (
+              <div className="store-access-hint">
+                <strong>
+                  <Store size={13} />
+                  {onMainSite
+                    ? "Not on your store"
+                    : "You're on someone else's store"}
+                </strong>
+                <span>
+                  {user?.role === "SUB_AGENT"
+                    ? "Visit your own store to manage your sub-agent tools."
+                    : "Visit your own store to manage tools and prices."}
+                </span>
+                <button type="button" onClick={handleGoToOwnStore}>
+                  Go to my store
+                  <ArrowUpRight size={14} />
+                </button>
+              </div>
+            ))}
         </nav>
         <button
           className="collapse-button desktop-only"
