@@ -5,6 +5,7 @@ export const transformUserData = (apiUser) => {
     const registrationFeePaid = apiUser.agent_profile?.registration_fee_paid ?? true;
 
     return {
+        ...apiUser,
         id: apiUser.id,
         username: apiUser.username,
         email: apiUser.email,

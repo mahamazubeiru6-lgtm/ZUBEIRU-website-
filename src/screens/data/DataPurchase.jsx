@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../../hooks/useTheme';
 import { useAuth } from '../../providers/AuthProvider';
 import { useToast } from '../../providers/ToastProvider';
@@ -8,12 +8,14 @@ import { ArrowLeft, User, Phone, Users, CreditCard, CheckCircle, AlertCircle, Ch
 const DataPurchase = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     const { colors } = useTheme();
     const { authFetch } = useAuth();
     const { showToast } = useToast();
 
-    const [fetching, setFetching] = useState(true);
-    const [packageData, setPackageData] = useState(null);
+    const routedPackage = location.state?.package?.id === id ? location.state.package : null;
+    const [fetching, setFetching] = useState(!routedPackage);
+    const [packageData, setPackageData] = useState(routedPackage);
     const [phoneNumber, setPhoneNumber] = useState('');
     const [saveRecipient, setSaveRecipient] = useState(false);
     const [recipientName, setRecipientName] = useState('');
@@ -35,6 +37,12 @@ const DataPurchase = () => {
 
     useEffect(() => {
         const fetchPackage = async () => {
+            if (routedPackage) {
+                setPackageData(routedPackage);
+                setFetching(false);
+                return;
+            }
+
             try {
                 setFetching(true);
                 const response = await authFetch(`/data/packages/${id}/`);
@@ -67,7 +75,7 @@ const DataPurchase = () => {
 
         fetchPackage();
         fetchRecipients();
-    }, [id, navigate, showToast]);
+    }, [authFetch, id, navigate, routedPackage, showToast]);
 
     const fetchRecipients = async () => {
         try {

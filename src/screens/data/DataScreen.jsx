@@ -97,6 +97,7 @@ const DataScreen = () => {
                     priceDisplay: `₵${parseFloat(pkg.effective_price || pkg.base_price_customer).toFixed(2)}`,
                     originalPrice: pkg.base_price_customer ? parseFloat(pkg.base_price_customer) : null,
                     validity: '30 Days',
+                    description: pkg.description || 'High-speed data bundle with instant activation',
                     popular: pkg.is_popular || false,
                     price_source: pkg.price_source || 'base',
                     is_active: pkg.is_active,
@@ -224,7 +225,7 @@ const DataScreen = () => {
             return;
         }
         addRecentlyViewed(pkg);
-        navigate(`/data/purchase/${pkg.id}`);
+        navigate(`/data/purchase/${pkg.id}`, { state: { package: pkg } });
     };
 
     const hasActiveFilters = selectedNetwork !== 'All' || selectedSizes.length > 0 ||

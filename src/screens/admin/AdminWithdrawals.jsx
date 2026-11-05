@@ -75,7 +75,9 @@ const AdminWithdrawals = () => {
                 setShowProcessModal(false);
                 setSelectedWithdrawal(null);
                 setProcessData({ status: 'COMPLETED', admin_notes: '' });
-                fetchWithdrawals();
+                setWithdrawals((current) => current.map((withdrawal) => (
+                    withdrawal.id === data.data.id ? data.data : withdrawal
+                )));
             } else {
                 showToast(data.message || 'Failed to process withdrawal', 'error');
             }

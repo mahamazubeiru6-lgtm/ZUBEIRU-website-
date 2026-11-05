@@ -155,7 +155,9 @@ const AdminPackages = () => {
         setShowEditModal(false);
         setSelectedPackage(null);
         resetForm();
-        fetchPackages();
+        setPackages((current) => isEdit
+          ? current.map((pkg) => (pkg.id === data.data.id ? data.data : pkg))
+          : [data.data, ...current]);
       } else if (data.errors) {
         setFormErrors(data.errors);
         const first = Object.values(data.errors)[0];
@@ -183,7 +185,9 @@ const AdminPackages = () => {
           `Package ${pkg.is_active ? "deactivated" : "activated"}`,
           "success"
         );
-        fetchPackages();
+        setPackages((current) => current.map((item) => (
+          item.id === pkg.id ? data.data : item
+        )));
       } else {
         showToast(data.message || "Failed", "error");
       }

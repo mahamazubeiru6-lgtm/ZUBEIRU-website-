@@ -67,7 +67,8 @@ const STATUS_OPTIONS = [
 const NETWORK_OPTIONS = ["ALL", "MTN", "Telecel", "AirtelTigo"];
 
 const SEARCH_DEBOUNCE_MS = 400;
-const EAGER_FETCH_PAGE_CAP = 20; // safety limit for full-fetch mode
+const EAGER_FETCH_PAGE_SIZE = 200;
+const EAGER_FETCH_PAGE_CAP = 5; // scan at most 1,000 filtered records
 
 const STATUS_WORDS = {
   pending: "PENDING",
@@ -298,12 +299,19 @@ const OrdersList = () => {
 
   
   const abortRef = useRef(null);
+  const fullAbortRef = useRef(null);
+  const fullRequestIdRef = useRef(0);
 
   
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    fullAbortRef.current?.abort();
   }, []);
 
   
@@ -374,11 +382,21 @@ const OrdersList = () => {
   const fetchAllPages = useCallback(async () => {
     if (fullSetKeyRef.current === fullSetKey && fullSet) return;
 
+    if (fullSetKeyRef.current !== fullSetKey) {
+      fullSetKeyRef.current = "";
+      setFullSet(null);
+    }
+
+    if (fullAbortRef.current) fullAbortRef.current.abort();
+    const controller = new AbortController();
+    fullAbortRef.current = controller;
+    const requestId = ++fullRequestIdRef.current;
+
     setFullFetching(true);
 
     try {
       const baseParams = new URLSearchParams();
-      baseParams.set("page_size", String(pagination.pageSize));
+      baseParams.set("page_size", String(EAGER_FETCH_PAGE_SIZE));
       if (effectiveStatus !== "ALL")
         baseParams.set("status", effectiveStatus);
       if (effectiveNetwork !== "ALL")
@@ -388,7 +406,8 @@ const OrdersList = () => {
 
       baseParams.set("page", "1");
       const firstRes = await authFetch(
-        `/data/orders/?${baseParams.toString()}`
+        `/data/orders/?${baseParams.toString()}`,
+        { signal: controller.signal }
       );
       const firstData = await firstRes.json();
       if (!firstRes.ok || firstData.status !== "success") {
@@ -407,27 +426,32 @@ const OrdersList = () => {
           const params = new URLSearchParams(baseParams);
           params.set("page", String(p));
           const res = await authFetch(
-            `/data/orders/?${params.toString()}`
+            `/data/orders/?${params.toString()}`,
+            { signal: controller.signal }
           );
           const d = await res.json();
-          return res.ok && d.status === "success" ? d.data || [] : [];
+          if (!res.ok || d.status !== "success") {
+            throw new Error(d.message || `Failed to load order page ${p}`);
+          }
+          return d.data || [];
         })
       );
 
       const all = [firstData.data || [], ...results].flat();
+      if (fullRequestIdRef.current !== requestId) return;
       setFullSet({ data: all, truncated });
       fullSetKeyRef.current = fullSetKey;
     } catch (err) {
+      if (err.name === "AbortError") return;
       showToast(err.message || "Failed to load all pages", "error");
     } finally {
-      setFullFetching(false);
+      if (fullRequestIdRef.current === requestId) setFullFetching(false);
     }
   }, [
     authFetch,
     showToast,
     fullSet,
     fullSetKey,
-    pagination.pageSize,
     effectiveStatus,
     effectiveNetwork,
     effectiveDateFrom,
@@ -441,9 +465,7 @@ const OrdersList = () => {
 
   
   useEffect(() => {
-    if (effectiveFreeText && !fullFetching) {
-      fetchAllPages();
-    }
+    if (effectiveFreeText) fetchAllPages();
   }, [effectiveFreeText, fullSetKey]);
 
   
@@ -909,7 +931,7 @@ const OrdersList = () => {
               {fullSet?.truncated && (
                 <span style={{ color: colors.warning }}>
                   {" "}
-                  · limited to first {EAGER_FETCH_PAGE_CAP * pagination.pageSize}
+                  · limited to first {EAGER_FETCH_PAGE_CAP * EAGER_FETCH_PAGE_SIZE}
                 </span>
               )}
             </>
@@ -943,7 +965,7 @@ const OrdersList = () => {
         <div style={styles.hintBanner(colors)}>
           <Sparkles size={14} color={colors.warning} />
           <span style={{ flex: 1, fontSize: 12, color: colors.text }}>
-            Search scanned the first {EAGER_FETCH_PAGE_CAP * pagination.pageSize}{" "}
+            Search scanned the first {EAGER_FETCH_PAGE_CAP * EAGER_FETCH_PAGE_SIZE}{" "}
             orders. Narrow with a filter (status, date) to search more.
           </span>
           <button

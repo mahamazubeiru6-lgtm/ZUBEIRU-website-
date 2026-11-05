@@ -45,7 +45,8 @@ export const useNotices = () => {
 
             if (response.status === 201 && data.status === 'success') {
                 showToast(data.message || 'Notice created successfully!', 'success');
-                await fetchNotices();
+                setNotices((current) => [data.data, ...current]);
+                setTotalCount((current) => current + 1);
                 return data.data;
             } else {
                 if (data.errors) {
@@ -76,7 +77,9 @@ export const useNotices = () => {
 
             if (response.ok && data.status === 'success') {
                 showToast(data.message || 'Notice updated successfully!', 'success');
-                await fetchNotices();
+                setNotices((current) => current.map((notice) => (
+                    notice.id === id ? data.data : notice
+                )));
                 return data.data;
             } else {
                 if (data.errors) {
@@ -106,7 +109,8 @@ export const useNotices = () => {
 
             if (response.ok && data.status === 'success') {
                 showToast(data.message || 'Notice deleted successfully!', 'success');
-                await fetchNotices();
+                setNotices((current) => current.filter((notice) => notice.id !== id));
+                setTotalCount((current) => Math.max(0, current - 1));
                 return true;
             } else {
                 showToast(data.message || 'Failed to delete notice', 'error');
@@ -131,7 +135,9 @@ export const useNotices = () => {
 
             if (response.ok && data.status === 'success') {
                 showToast(data.message || 'Notice display toggled successfully!', 'success');
-                await fetchNotices();
+                setNotices((current) => current.map((notice) => (
+                    notice.id === id ? { ...notice, ...data.data } : notice
+                )));
                 return data.data;
             } else {
                 showToast(data.message || 'Failed to toggle notice display', 'error');

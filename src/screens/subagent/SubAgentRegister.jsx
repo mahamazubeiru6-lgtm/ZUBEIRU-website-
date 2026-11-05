@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '../../hooks/useTheme';
+import { normalizeStoreSlug, useAgentContext } from '../../hooks/useAgentContext';
 import { useAuth } from '../../providers/AuthProvider';
 import { useToast } from '../../providers/ToastProvider';
 import { STOREFRONT_DOMAIN } from '../../config';
@@ -11,11 +12,13 @@ import { UserPlus, Mail, Phone, Lock, User, Eye, EyeOff, ArrowRight, CheckCircle
 
 const SubAgentRegistration = () => {
   const { colors } = useTheme();
+  const { agent: storefrontAgent } = useAgentContext();
   const {
     authFetch,
     login,
     isAuthenticated,
     user,
+    loading: authLoading,
     refreshUser,
     initiateRegistrationPayment,
   } = useAuth();
@@ -67,9 +70,17 @@ const SubAgentRegistration = () => {
   }, [navigate]);
 
   useEffect(() => {
+    if (authLoading) return;
+
     const detectAgentFromSubdomain = async () => {
       try {
         setIsVerifying(true);
+
+        if (isAuthenticated && user?.role !== 'CUSTOMER') {
+          showToast('Only customer accounts can register as a sub-agent.', 'error');
+          navigate('/');
+          return;
+        }
 
         const hostname = window.location.hostname;
         let storeUrl = null;
@@ -91,16 +102,34 @@ const SubAgentRegistration = () => {
           storeUrl = paramAgent;
         }
 
+        storeUrl = normalizeStoreSlug(storeUrl);
+
         if (!storeUrl) {
           showToast('Invalid registration link. Please contact your agent.', 'error');
           navigate('/');
           return;
         }
 
-        const response = await authFetch(`/accounts/agent-by-store/?store_url=${storeUrl}`);
-        const data = await response.json();
+        const cachedStoreUrl = normalizeStoreSlug(storefrontAgent?.profile?.store_url);
+        let lookupOk = false;
+        let data;
 
-        if (response.ok && data.status === 'success' && data.exists) {
+        if (storefrontAgent && cachedStoreUrl === storeUrl) {
+          lookupOk = true;
+          data = {
+            status: 'success',
+            exists: true,
+            data: storefrontAgent,
+          };
+        } else {
+          const response = await authFetch(
+            `/accounts/agent-by-store/?store_url=${encodeURIComponent(storeUrl)}`
+          );
+          data = await response.json();
+          lookupOk = response.ok;
+        }
+
+        if (lookupOk && data.status === 'success' && data.exists) {
           const agentData = data.data.agent;
           if (agentData.role !== 'AGENT') {
             showToast('Invalid agent. Please contact your agent.', 'error');
@@ -127,7 +156,16 @@ const SubAgentRegistration = () => {
     };
 
     detectAgentFromSubdomain();
-  }, [searchParams, authFetch, navigate, showToast]);
+  }, [
+    searchParams,
+    authFetch,
+    navigate,
+    showToast,
+    storefrontAgent,
+    authLoading,
+    isAuthenticated,
+    user?.role,
+  ]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

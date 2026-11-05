@@ -129,22 +129,19 @@ export default function AgentDashboard() {
       if (chartAnimTimer.current) clearTimeout(chartAnimTimer.current);
 
       try {
-        const [profileRes, statsRes, pkgRes] = await Promise.all([
-          authFetch("/accounts/user/me/"),
+        const [statsRes, pkgRes] = await Promise.all([
           authFetch("/accounts/dashboard/stats/"),
           authFetch("/data/packages/"),
+          fetchSubAgentFee(),
         ]);
-        const [profile, stats, pkgData] = await Promise.all([
-          profileRes.json(),
+        const [stats, pkgData] = await Promise.all([
           statsRes.json(),
           pkgRes.json(),
         ]);
 
-        if (profileRes.ok && profile.status === "success") {
-          setWalletBalance(parseFloat(profile.data.wallet?.balance || 0));
-        }
         if (statsRes.ok && stats.status === "success") {
           setDashboardData(stats.data);
+          setWalletBalance(parseFloat(stats.data?.wallet_balance || 0));
         }
         if (pkgRes.ok && pkgData.status === "success") {
           setPackages(
@@ -174,8 +171,6 @@ export default function AgentDashboard() {
             }))
           );
         }
-
-        await fetchSubAgentFee();
       } catch (err) {
         console.error("fetchDashboardData:", err);
         showToast("Failed to load dashboard data", "error");
@@ -223,9 +218,13 @@ export default function AgentDashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(readApiError(data, "Failed to update fee"));
       showToast(data.message || "Fee updated", "success");
-      setSubAgentFee(data.data);
+      const nextFee = {
+        ...data.data,
+        current_fee: data.data?.current_fee || data.data?.fee,
+      };
+      setSubAgentFee(nextFee);
+      setFeeInput(nextFee.current_fee || nextFee.base_fee || "");
       setEditingFee(false);
-      fetchDashboardData({ silent: true });
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -244,8 +243,14 @@ export default function AgentDashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(readApiError(data, "Failed to reset"));
       showToast(data.message || "Custom fee removed", "success");
-      await fetchSubAgentFee();
-      fetchDashboardData({ silent: true });
+      const baseFee = data.data?.base_fee || subAgentFee?.base_fee || "0.00";
+      setSubAgentFee({
+        current_fee: null,
+        base_fee: baseFee,
+        is_custom: false,
+        profit: "0.00",
+      });
+      setFeeInput(baseFee);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -290,50 +295,37 @@ export default function AgentDashboard() {
         editingType === "customer"
           ? "AGENT_CUSTOMER_PRICE"
           : "AGENT_SUB_BASE_PRICE";
-      const isEditing =
-        editingType === "customer"
-          ? editingPackage.agentCustomerPrice !== null
-          : editingPackage.agentSubBasePrice !== null;
-
-      let res;
-      if (isEditing) {
-        const listRes = await authFetch(
-          `/data/pricing/?package=${editingPackage.id}&user=${user.id}`
-        );
-        const listData = await listRes.json();
-        const existing =
-          listRes.ok && listData.status === "success"
-            ? (listData.data || [])[0]
-            : null;
-
-        if (existing) {
-          res = await authFetch(`/data/pricing/${existing.id}/`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              price: priceInput,
-              notes: `Updated ${editingType} price for ${editingPackage.network} ${editingPackage.size}`,
-            }),
-          });
-        }
-      }
-      if (!res) {
-        res = await authFetch("/data/pricing/create/", {
-          method: "POST",
-          body: JSON.stringify({
-            package: editingPackage.id,
-            user: user.id,
-            price_type: priceType,
-            price: priceInput,
-            notes: `${editingType === "customer" ? "Customer" : "Sub-Agent"} price for ${editingPackage.network} ${editingPackage.size}`,
-          }),
-        });
-      }
+      // The create endpoint intentionally uses update_or_create, so one request
+      // handles both new and existing overrides without a preliminary list GET.
+      const res = await authFetch("/data/pricing/create/", {
+        method: "POST",
+        body: JSON.stringify({
+          package: editingPackage.id,
+          user: user.id,
+          price_type: priceType,
+          price: priceInput,
+          notes: `${editingType === "customer" ? "Customer" : "Sub-Agent"} price for ${editingPackage.network} ${editingPackage.size}`,
+        }),
+      });
 
       const data = await res.json();
       if (!res.ok) throw new Error(readApiError(data, "Failed to save price"));
       showToast("Price saved", "success");
+      setPackages((current) => current.map((pkg) => (
+        pkg.id === editingPackage.id
+          ? {
+              ...pkg,
+              ...(editingType === "customer"
+                ? {
+                    agentCustomerPrice: value,
+                    effectivePrice: value,
+                    priceSource: "agent_custom",
+                  }
+                : { agentSubBasePrice: value }),
+            }
+          : pkg
+      )));
       closePriceModal();
-      fetchDashboardData({ silent: true });
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -462,7 +454,7 @@ export default function AgentDashboard() {
       
       {subAgentFee && (
         <FeeCard
-          fee={subAgentFee}
+          fee={{ ...subAgentFee, sub_agent_count: totalSubAgents }}
           editing={editingFee}
           feeInput={feeInput}
           setFeeInput={setFeeInput}

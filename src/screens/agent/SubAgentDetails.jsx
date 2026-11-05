@@ -8,6 +8,22 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useToast } from '../../providers/ToastProvider';
 import { ArrowLeft, Mail, Phone, Calendar, Store, CheckCircle, AlertCircle, Clock, Package, Edit2, Save, X, RefreshCw, Search, Info } from 'lucide-react';
 
+const transformPackage = (pkg, fallback = false) => ({
+  id: pkg.id,
+  network: pkg.network,
+  size: `${pkg.size_gb}GB`,
+  basePriceCustomer: parseFloat(pkg.base_price_customer || 0),
+  basePriceAgent: parseFloat(pkg.base_price_agent || 0),
+  agentSubBasePrice: pkg.agent_sub_base_price ? parseFloat(pkg.agent_sub_base_price) : null,
+  agentSubCustomPrice: pkg.agent_sub_custom_price ? parseFloat(pkg.agent_sub_custom_price) : null,
+  subAgentCustomerPrice: pkg.sub_agent_customer_price ? parseFloat(pkg.sub_agent_customer_price) : null,
+  effectivePrice: parseFloat(pkg.effective_price || pkg.base_price_agent || 0),
+  priceSource: pkg.price_source || 'base',
+  hasCustomPrice: fallback ? pkg.price_source === 'agent_sub_custom' : pkg.has_custom_price || false,
+  isActive: pkg.is_active,
+  pricingId: pkg.pricing_id || null,
+});
+
 const SubAgentDetails = () => {
   const { subAgentId } = useParams();
   const navigate = useNavigate();
@@ -35,9 +51,23 @@ const SubAgentDetails = () => {
   const fetchSubAgentData = async () => {
     try {
       setLoading(true);
+      setOrders([]);
+      setOrderSummary(null);
+      setPackages([]);
+      const [userResponse, summaryResponse, ordersResponse, pricingResponse] =
+        await Promise.all([
+          authFetch(`/accounts/users/${subAgentId}/`),
+          authFetch(`/data/orders/summary/?sub_agent=${subAgentId}`),
+          authFetch(`/data/orders/?sub_agent=${subAgentId}&page_size=10`),
+          authFetch(`/data/sub-agent-pricing/?sub_agent_id=${subAgentId}`),
+        ]);
+      const [userData, summaryData, ordersData, pricingData] = await Promise.all([
+        userResponse.json(),
+        summaryResponse.json(),
+        ordersResponse.json(),
+        pricingResponse.json(),
+      ]);
 
-      const userResponse = await authFetch(`/accounts/users/${subAgentId}/`);
-      const userData = await userResponse.json();
       if (!userResponse.ok || userData.status !== 'success') {
         showToast(userData.message || 'Failed to fetch sub-agent details', 'error');
         navigate('/agent/subagents');
@@ -45,57 +75,21 @@ const SubAgentDetails = () => {
       }
       setSubAgent(userData.data);
 
-      const summaryResponse = await authFetch(`/data/orders/summary/?sub_agent=${subAgentId}`);
-      const summaryData = await summaryResponse.json();
       if (summaryResponse.ok && summaryData.status === 'success') {
         setOrderSummary(summaryData.data);
       }
 
-      const ordersResponse = await authFetch(`/data/orders/?sub_agent=${subAgentId}&page_size=10`);
-      const ordersData = await ordersResponse.json();
       if (ordersResponse.ok && ordersData.status === 'success') {
         setOrders(ordersData.data || []);
       }
 
-      const pricingResponse = await authFetch(`/data/sub-agent-pricing/?sub_agent_id=${subAgentId}`);
-      const pricingData = await pricingResponse.json();
       if (pricingResponse.ok && pricingData.status === 'success') {
-        const transformedPackages = pricingData.data.packages.map(pkg => ({
-          id: pkg.id,
-          network: pkg.network,
-          size: `${pkg.size_gb}GB`,
-          basePriceCustomer: parseFloat(pkg.base_price_customer || 0),
-          basePriceAgent: parseFloat(pkg.base_price_agent || 0),
-          agentSubBasePrice: pkg.agent_sub_base_price ? parseFloat(pkg.agent_sub_base_price) : null,
-          agentSubCustomPrice: pkg.agent_sub_custom_price ? parseFloat(pkg.agent_sub_custom_price) : null,
-          subAgentCustomerPrice: pkg.sub_agent_customer_price ? parseFloat(pkg.sub_agent_customer_price) : null,
-          effectivePrice: parseFloat(pkg.effective_price || pkg.base_price_agent || 0),
-          priceSource: pkg.price_source || 'base',
-          hasCustomPrice: pkg.has_custom_price || false,
-          isActive: pkg.is_active,
-          pricingId: pkg.pricing_id || null,
-        }));
-        setPackages(transformedPackages);
+        setPackages((pricingData.data.packages || []).map((pkg) => transformPackage(pkg)));
       } else {
         const fallbackResponse = await authFetch(`/data/packages/?user_id=${subAgentId}`);
         const fallbackData = await fallbackResponse.json();
         if (fallbackResponse.ok && fallbackData.status === 'success') {
-          const transformedPackages = fallbackData.data.map(pkg => ({
-            id: pkg.id,
-            network: pkg.network,
-            size: `${pkg.size_gb}GB`,
-            basePriceCustomer: parseFloat(pkg.base_price_customer || 0),
-            basePriceAgent: parseFloat(pkg.base_price_agent || 0),
-            agentSubBasePrice: pkg.agent_sub_base_price ? parseFloat(pkg.agent_sub_base_price) : null,
-            agentSubCustomPrice: pkg.agent_sub_custom_price ? parseFloat(pkg.agent_sub_custom_price) : null,
-            subAgentCustomerPrice: pkg.sub_agent_customer_price ? parseFloat(pkg.sub_agent_customer_price) : null,
-            effectivePrice: parseFloat(pkg.effective_price || pkg.base_price_agent || 0),
-            priceSource: pkg.price_source || 'base',
-            hasCustomPrice: pkg.price_source === 'agent_sub_custom',
-            isActive: pkg.is_active,
-            pricingId: pkg.pricing_id || null,
-          }));
-          setPackages(transformedPackages);
+          setPackages((fallbackData.data || []).map((pkg) => transformPackage(pkg, true)));
         }
       }
 
@@ -123,6 +117,11 @@ const SubAgentDetails = () => {
       showToast('Please enter a valid price', 'error');
       return;
     }
+    const minimumPrice = editingPackage.agentSubBasePrice || editingPackage.basePriceAgent;
+    if (Number(newPrice) < minimumPrice) {
+      showToast(`Price cannot be below the agent base price (₵${minimumPrice.toFixed(2)})`, 'error');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -145,7 +144,19 @@ const SubAgentDetails = () => {
         const data = await response.json();
         if (response.ok && data.status === 'success') {
           showToast('Custom price updated successfully', 'success');
-          fetchSubAgentData();
+          const price = Number(newPrice);
+          setPackages((current) => current.map((pkg) => (
+            pkg.id === editingPackage.id
+              ? {
+                  ...pkg,
+                  agentSubCustomPrice: price,
+                  effectivePrice: price,
+                  priceSource: 'agent_sub_custom',
+                  hasCustomPrice: true,
+                  pricingId: data.data?.id || pkg.pricingId,
+                }
+              : pkg
+          )));
           setShowEditModal(false);
           setEditingPackage(null);
           setNewPrice('');
@@ -168,7 +179,19 @@ const SubAgentDetails = () => {
 
         if (response.status === 201 && data.status === 'success') {
           showToast(`${editingType === 'custom' ? 'Custom' : 'Base'} price set successfully`, 'success');
-          fetchSubAgentData();
+          const price = Number(newPrice);
+          setPackages((current) => current.map((pkg) => (
+            pkg.id === editingPackage.id
+              ? {
+                  ...pkg,
+                  agentSubCustomPrice: price,
+                  effectivePrice: price,
+                  priceSource: 'agent_sub_custom',
+                  hasCustomPrice: true,
+                  pricingId: data.data?.id || null,
+                }
+              : pkg
+          )));
           setShowEditModal(false);
           setEditingPackage(null);
           setNewPrice('');
@@ -208,7 +231,18 @@ const SubAgentDetails = () => {
 
       if (response.ok && data.status === 'success') {
         showToast('Custom price removed successfully', 'success');
-        fetchSubAgentData();
+        setPackages((current) => current.map((item) => (
+          item.id === pkg.id
+            ? {
+                ...item,
+                agentSubCustomPrice: null,
+                effectivePrice: item.agentSubBasePrice || item.basePriceAgent,
+                priceSource: item.agentSubBasePrice ? 'agent_base' : 'base',
+                hasCustomPrice: false,
+                pricingId: null,
+              }
+            : item
+        )));
       } else {
         showToast(data.message || 'Failed to remove custom price', 'error');
       }
@@ -986,7 +1020,7 @@ const SubAgentDetails = () => {
 
                 
                 <button
-                  onClick={() => handleEditPrice(pkg, 'base')}
+                  onClick={() => navigate('/agent/dashboard')}
                   style={{
                     padding: '6px 12px',
                     borderRadius: '6px',
@@ -1013,7 +1047,7 @@ const SubAgentDetails = () => {
                   }}
                 >
                   <Edit2 size={14} />
-                  Edit Sub-Agent Base
+                  Manage Global Base
                 </button>
               </div>
             );

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../hooks/useTheme';
 import { useToast } from '../providers/ToastProvider';
-import { useNotices } from '../hooks/useNotices';
 import {
     X,
     Save,
@@ -14,9 +13,8 @@ import {
     EyeOff
 } from 'lucide-react';
 
-const NoticeFormModal = ({ isOpen, onClose, notice, onSave }) => {
+const NoticeFormModal = ({ isOpen, onClose, notice, onSave, createNotice, updateNotice }) => {
     const { colors } = useTheme();
-    const { createNotice, updateNotice } = useNotices();
     const { showToast } = useToast();
 
     const [formData, setFormData] = useState({
@@ -103,7 +101,7 @@ const NoticeFormModal = ({ isOpen, onClose, notice, onSave }) => {
             }
 
             if (result) {
-                onSave();
+                onSave(result);
             }
         } catch (error) {
             console.error('Error saving notice:', error);
@@ -116,6 +114,7 @@ const NoticeFormModal = ({ isOpen, onClose, notice, onSave }) => {
     if (!isOpen) return null;
 
     const priorities = [
+        { value: 'URGENT', label: 'Urgent', color: '#DC2626' },
         { value: 'HIGH', label: 'High', color: '#EF4444' },
         { value: 'MEDIUM', label: 'Medium', color: '#F59E0B' },
         { value: 'LOW', label: 'Low', color: '#3B82F6' },

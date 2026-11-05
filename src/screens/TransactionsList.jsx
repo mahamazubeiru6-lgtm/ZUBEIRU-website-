@@ -1,8 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../providers/AuthProvider';
 import { useToast } from '../providers/ToastProvider';
 import { Search, X, Eye, RefreshCw, CheckCircle, Clock, AlertCircle, ArrowUp, ArrowDown, Printer, Filter as FilterIcon, SlidersHorizontal, Wallet, TrendingUp, CreditCard, Receipt, ArrowLeftRight } from 'lucide-react';
+
+const SEARCH_DEBOUNCE_MS = 350;
+const SEARCH_PAGE_SIZE = 200;
+const SEARCH_PAGE_CAP = 5;
+
+const useDebouncedValue = (value, delay) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+
+  return debouncedValue;
+};
+
+const buildTransactionHaystack = (transaction) => [
+  transaction.id,
+  transaction.username,
+  transaction.reference,
+  transaction.description,
+  transaction.transaction_type,
+  transaction.source,
+  transaction.status,
+  transaction.amount,
+  transaction.created_at,
+  transaction.updated_at,
+  transaction.metadata ? JSON.stringify(transaction.metadata) : '',
+]
+  .filter(Boolean)
+  .join(' ')
+  .toLowerCase();
 
 const TransactionsList = () => {
   const { colors } = useTheme();
@@ -20,6 +52,14 @@ const TransactionsList = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showSummary, setShowSummary] = useState(true);
+  const [draftType, setDraftType] = useState('ALL');
+  const [draftStatus, setDraftStatus] = useState('ALL');
+  const [draftSource, setDraftSource] = useState('ALL');
+  const [refreshing, setRefreshing] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchSet, setSearchSet] = useState(null);
+  const [typeBreakdown, setTypeBreakdown] = useState({});
+  const [statusBreakdown, setStatusBreakdown] = useState({});
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 20,
@@ -27,6 +67,14 @@ const TransactionsList = () => {
     count: 0,
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const listAbortRef = useRef(null);
+  const searchAbortRef = useRef(null);
+  const searchSetRef = useRef(null);
+  const searchSetKeyRef = useRef('');
+  const searchRequestKeyRef = useRef('');
+  const searchRequestIdRef = useRef(0);
+  const debouncedSearch = useDebouncedValue(searchQuery.trim().toLowerCase(), SEARCH_DEBOUNCE_MS);
+  const filterKey = `${selectedType}|${selectedStatus}|${selectedSource}`;
 
   useEffect(() => {
     const handleResize = () => {
@@ -36,30 +84,29 @@ const TransactionsList = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    fetchTransactions();
-    fetchSummary();
-  }, [pagination.page, selectedType, selectedStatus, selectedSource]);
+  const buildFilterParams = useCallback((page, pageSize) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (selectedType !== 'ALL') params.set('type', selectedType);
+    if (selectedStatus !== 'ALL') params.set('status', selectedStatus);
+    if (selectedSource !== 'ALL') params.set('source', selectedSource);
+    return params;
+  }, [selectedType, selectedStatus, selectedSource]);
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async ({ silent = false } = {}) => {
+    if (listAbortRef.current) listAbortRef.current.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
+
     try {
-      setLoading(true);
-      let url = `/accounts/transactions/?page=${pagination.page}&page_size=${pagination.pageSize}`;
-      
-      if (selectedType !== 'ALL') {
-        url += `&transaction_type=${selectedType}`;
-      }
-      if (selectedStatus !== 'ALL') {
-        url += `&status=${selectedStatus}`;
-      }
-      if (selectedSource !== 'ALL') {
-        url += `&source=${selectedSource}`;
-      }
-      if (searchQuery) {
-        url += `&search=${encodeURIComponent(searchQuery)}`;
-      }
-
-      const response = await authFetch(url);
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+      const params = buildFilterParams(pagination.page, pagination.pageSize);
+      const response = await authFetch(`/accounts/transactions/?${params.toString()}`, {
+        signal: controller.signal,
+      });
       const data = await response.json();
 
       if (response.ok && data.status === 'success') {
@@ -69,18 +116,22 @@ const TransactionsList = () => {
           count: data.count || 0,
           totalPages: data.total_pages || 1,
         }));
+        setTypeBreakdown(data.type_breakdown || {});
+        setStatusBreakdown(data.status_breakdown || {});
       } else {
         showToast(data.message || 'Failed to fetch transactions', 'error');
       }
     } catch (error) {
+      if (error.name === 'AbortError') return;
       console.error('Error fetching transactions:', error);
       showToast('Network error. Please try again.', 'error');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [authFetch, buildFilterParams, pagination.page, pagination.pageSize, showToast]);
 
-  const fetchSummary = async () => {
+  const fetchSummary = useCallback(async () => {
     try {
       const response = await authFetch('/accounts/transactions/summary/');
       const data = await response.json();
@@ -91,7 +142,87 @@ const TransactionsList = () => {
     } catch (error) {
       console.error('Error fetching summary:', error);
     }
-  };
+  }, [authFetch]);
+
+  const fetchSearchSet = useCallback(async ({ force = false } = {}) => {
+    if (!force && searchSetKeyRef.current === filterKey && searchSetRef.current) return;
+    if (!force && searchRequestKeyRef.current === filterKey) return;
+
+    if (searchAbortRef.current) searchAbortRef.current.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const requestKey = filterKey;
+    const requestId = ++searchRequestIdRef.current;
+    searchRequestKeyRef.current = requestKey;
+    setSearching(true);
+
+    try {
+      const firstParams = buildFilterParams(1, SEARCH_PAGE_SIZE);
+      const firstResponse = await authFetch(`/accounts/transactions/?${firstParams.toString()}`, {
+        signal: controller.signal,
+      });
+      const firstData = await firstResponse.json();
+      if (!firstResponse.ok || firstData.status !== 'success') {
+        throw new Error(firstData.message || 'Failed to search transactions');
+      }
+
+      const totalPages = firstData.total_pages || 1;
+      const pagesToFetch = Math.min(totalPages, SEARCH_PAGE_CAP);
+      const remainingPages = Array.from({ length: Math.max(0, pagesToFetch - 1) }, (_, index) => index + 2);
+      const pageResults = await Promise.all(remainingPages.map(async (page) => {
+        const params = buildFilterParams(page, SEARCH_PAGE_SIZE);
+        const response = await authFetch(`/accounts/transactions/?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+          throw new Error(data.message || `Failed to load transaction page ${page}`);
+        }
+        return data.data || [];
+      }));
+
+      const nextSearchSet = {
+        data: [firstData.data || [], ...pageResults].flat(),
+        truncated: totalPages > SEARCH_PAGE_CAP,
+      };
+      if (searchRequestIdRef.current !== requestId) return;
+      searchSetRef.current = nextSearchSet;
+      searchSetKeyRef.current = requestKey;
+      setSearchSet(nextSearchSet);
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.error('Error searching transactions:', error);
+      showToast(error.message || 'Failed to search transactions', 'error');
+    } finally {
+      if (searchRequestIdRef.current === requestId) {
+        searchRequestKeyRef.current = '';
+        setSearching(false);
+      }
+    }
+  }, [authFetch, buildFilterParams, filterKey, showToast]);
+
+  useEffect(() => {
+    if (!debouncedSearch) fetchTransactions();
+  }, [debouncedSearch, fetchTransactions]);
+
+  useEffect(() => {
+    fetchSummary();
+  }, [fetchSummary]);
+
+  useEffect(() => {
+    searchSetRef.current = null;
+    searchSetKeyRef.current = '';
+    setSearchSet(null);
+  }, [filterKey]);
+
+  useEffect(() => {
+    if (debouncedSearch) fetchSearchSet();
+  }, [debouncedSearch, fetchSearchSet]);
+
+  useEffect(() => () => {
+    listAbortRef.current?.abort();
+    searchAbortRef.current?.abort();
+  }, []);
 
   const handleViewTransaction = (transaction) => {
     setSelectedTransaction(transaction);
@@ -165,21 +296,44 @@ const TransactionsList = () => {
   const userRole = user?.role || 'CUSTOMER';
   const isAdmin = userRole === 'ADMIN';
 
-  const typeOptions = ['ALL', 'DEPOSIT', 'WITHDRAWAL', 'PURCHASE', 'REFUND', 'COMMISSION', 'TRANSFER'];
+  const typeOptions = ['ALL', 'DEPOSIT', 'WITHDRAWAL', 'PURCHASE', 'REFUND', 'COMMISSION', 'TRANSFER', 'REGISTRATION_FEE'];
   const statusOptions = ['ALL', 'PENDING', 'COMPLETED', 'FAILED', 'CANCELLED'];
-  const sourceOptions = ['ALL', 'DATASELLING', 'WALLET', 'REGISTRATION'];
+  const sourceOptions = ['ALL', 'DATASELLING', 'MARKETPLACE', 'WALLET', 'REGISTRATION'];
+
+  const visibleTransactions = useMemo(() => {
+    if (!debouncedSearch) return transactions;
+    const tokens = debouncedSearch.split(/\s+/).filter(Boolean);
+    return (searchSet?.data || []).filter((transaction) => {
+      const haystack = buildTransactionHaystack(transaction);
+      return tokens.every((token) => haystack.includes(token));
+    });
+  }, [debouncedSearch, searchSet, transactions]);
+
+  const handleRefresh = () => {
+    fetchSummary();
+    if (debouncedSearch) fetchSearchSet({ force: true });
+    else fetchTransactions({ silent: true });
+  };
 
   const handleClearFilters = () => {
     setSearchQuery('');
     setSelectedType('ALL');
     setSelectedStatus('ALL');
     setSelectedSource('ALL');
+    setDraftType('ALL');
+    setDraftStatus('ALL');
+    setDraftSource('ALL');
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const hasActiveFilters = selectedType !== 'ALL' || selectedStatus !== 'ALL' || selectedSource !== 'ALL' || searchQuery;
+  const activeStructuredFilterCount = [
+    selectedType !== 'ALL',
+    selectedStatus !== 'ALL',
+    selectedSource !== 'ALL',
+  ].filter(Boolean).length;
 
-  if (loading) {
+  if (loading && transactions.length === 0 && !debouncedSearch) {
     return (
       <div style={{
         display: 'flex',
@@ -257,7 +411,7 @@ const TransactionsList = () => {
             {showSummary ? 'Hide Summary' : 'Show Summary'}
           </button>
           <button
-            onClick={fetchTransactions}
+            onClick={handleRefresh}
             style={{
               padding: '10px 16px',
               borderRadius: '10px',
@@ -274,7 +428,7 @@ const TransactionsList = () => {
             onMouseEnter={(e) => e.currentTarget.style.background = colors.hoverBg}
             onMouseLeave={(e) => e.currentTarget.style.background = colors.raisedBg}
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={16} className={refreshing ? 'spin-icon' : ''} />
             Refresh
           </button>
         </div>
@@ -307,7 +461,7 @@ const TransactionsList = () => {
           }}>
             <div style={{ fontSize: '11px', color: colors.secondaryText }}>Total Transactions</div>
             <div style={{ fontSize: '20px', fontWeight: '700', color: colors.heading }}>
-              {summary.summary?.total_transactions || 0}
+              {pagination.count || 0}
             </div>
           </div>
           <div style={{
@@ -318,7 +472,7 @@ const TransactionsList = () => {
           }}>
             <div style={{ fontSize: '11px', color: colors.secondaryText }}>Total Spent</div>
             <div style={{ fontSize: '20px', fontWeight: '700', color: '#3B82F6' }}>
-              {formatAmount(summary.summary?.total_spent || 0)}
+              {formatAmount(summary.summary?.total_purchases || 0)}
             </div>
           </div>
           <div style={{
@@ -329,7 +483,7 @@ const TransactionsList = () => {
           }}>
             <div style={{ fontSize: '11px', color: colors.secondaryText }}>Pending</div>
             <div style={{ fontSize: '20px', fontWeight: '700', color: '#F59E0B' }}>
-              {summary.summary?.pending_transactions || 0}
+              {statusBreakdown.PENDING?.count || 0}
             </div>
           </div>
           {isAdmin && (
@@ -342,7 +496,7 @@ const TransactionsList = () => {
               }}>
                 <div style={{ fontSize: '11px', color: colors.secondaryText }}>Total Revenue</div>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#10B981' }}>
-                  {formatAmount(summary.summary?.total_revenue || 0)}
+                  {formatAmount(typeBreakdown.PURCHASE?.total || 0)}
                 </div>
               </div>
               <div style={{
@@ -353,7 +507,7 @@ const TransactionsList = () => {
               }}>
                 <div style={{ fontSize: '11px', color: colors.secondaryText }}>Total Commissions</div>
                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#F59E0B' }}>
-                  {formatAmount(summary.summary?.total_commissions || 0)}
+                  {formatAmount(typeBreakdown.COMMISSION?.total || 0)}
                 </div>
               </div>
             </>
@@ -429,16 +583,21 @@ const TransactionsList = () => {
         </div>
 
         <button
-          onClick={() => setShowFilterModal(true)}
+          onClick={() => {
+            setDraftType(selectedType);
+            setDraftStatus(selectedStatus);
+            setDraftSource(selectedSource);
+            setShowFilterModal(true);
+          }}
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
             padding: '10px 16px',
             borderRadius: '10px',
-            border: `1.5px solid ${hasActiveFilters ? colors.btnBg : colors.border}`,
-            backgroundColor: hasActiveFilters ? colors.btnBg : colors.raisedBg,
-            color: hasActiveFilters ? colors.btnText : colors.text,
+            border: `1.5px solid ${activeStructuredFilterCount ? colors.btnBg : colors.border}`,
+            backgroundColor: activeStructuredFilterCount ? colors.btnBg : colors.raisedBg,
+            color: activeStructuredFilterCount ? colors.btnText : colors.text,
             cursor: 'pointer',
             fontSize: '14px',
             fontWeight: '500',
@@ -447,7 +606,7 @@ const TransactionsList = () => {
         >
           <FilterIcon size={18} />
           Filters
-          {hasActiveFilters && (
+          {activeStructuredFilterCount > 0 && (
             <span style={{
               marginLeft: '4px',
               padding: '1px 8px',
@@ -455,7 +614,7 @@ const TransactionsList = () => {
               backgroundColor: 'rgba(255,255,255,0.2)',
               fontSize: '12px',
             }}>
-              {[selectedType !== 'ALL', selectedStatus !== 'ALL', selectedSource !== 'ALL'].filter(Boolean).length}
+              {activeStructuredFilterCount}
             </span>
           )}
         </button>
@@ -480,6 +639,31 @@ const TransactionsList = () => {
           </button>
         )}
       </div>
+
+      {debouncedSearch && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginBottom: '12px',
+          padding: '8px 12px',
+          borderRadius: '8px',
+          border: `1px solid ${colors.border}`,
+          backgroundColor: colors.raisedBg,
+          color: colors.secondaryText,
+          fontSize: '12px',
+        }}>
+          {searching && <RefreshCw size={14} className="spin-icon" />}
+          <span>
+            {searching
+              ? 'Searching transaction history…'
+              : `${visibleTransactions.length} matching transaction${visibleTransactions.length === 1 ? '' : 's'}`}
+            {!searching && searchSet?.truncated
+              ? ` · scanned the newest ${SEARCH_PAGE_CAP * SEARCH_PAGE_SIZE}`
+              : ''}
+          </span>
+        </div>
+      )}
 
       
       {!isMobile && (
@@ -514,7 +698,7 @@ const TransactionsList = () => {
               <span style={{ textAlign: 'center' }}>Actions</span>
             </div>
 
-            {transactions.map((txn) => (
+            {visibleTransactions.map((txn) => (
               <div
                 key={txn.id}
                 style={{
@@ -621,7 +805,7 @@ const TransactionsList = () => {
           flexDirection: 'column',
           gap: '12px',
         }}>
-          {transactions.map((txn) => (
+          {visibleTransactions.map((txn) => (
             <div
               key={txn.id}
               style={{
@@ -749,7 +933,7 @@ const TransactionsList = () => {
       )}
 
       
-      {transactions.length === 0 && (
+      {visibleTransactions.length === 0 && !searching && (
         <div style={{
           textAlign: 'center',
           padding: '60px 20px',
@@ -780,7 +964,7 @@ const TransactionsList = () => {
       )}
 
       
-      {pagination.totalPages > 1 && (
+      {!debouncedSearch && pagination.totalPages > 1 && (
         <div style={{
           display: 'flex',
           justifyContent: 'center',
@@ -1172,16 +1356,16 @@ const TransactionsList = () => {
                 {typeOptions.map((type) => (
                   <button
                     key={type}
-                    onClick={() => setSelectedType(type)}
+                    onClick={() => setDraftType(type)}
                     style={{
                       padding: '6px 14px',
                       borderRadius: '8px',
-                      border: `2px solid ${selectedType === type ? colors.btnBg : colors.border}`,
-                      backgroundColor: selectedType === type ? colors.btnBg : 'transparent',
-                      color: selectedType === type ? colors.btnText : colors.text,
+                      border: `2px solid ${draftType === type ? colors.btnBg : colors.border}`,
+                      backgroundColor: draftType === type ? colors.btnBg : 'transparent',
+                      color: draftType === type ? colors.btnText : colors.text,
                       cursor: 'pointer',
                       fontSize: '12px',
-                      fontWeight: selectedType === type ? '600' : '500',
+                      fontWeight: draftType === type ? '600' : '500',
                       transition: 'all 0.2s',
                       textTransform: 'capitalize',
                     }}
@@ -1210,16 +1394,16 @@ const TransactionsList = () => {
                 {statusOptions.map((status) => (
                   <button
                     key={status}
-                    onClick={() => setSelectedStatus(status)}
+                    onClick={() => setDraftStatus(status)}
                     style={{
                       padding: '6px 14px',
                       borderRadius: '8px',
-                      border: `2px solid ${selectedStatus === status ? colors.btnBg : colors.border}`,
-                      backgroundColor: selectedStatus === status ? colors.btnBg : 'transparent',
-                      color: selectedStatus === status ? colors.btnText : colors.text,
+                      border: `2px solid ${draftStatus === status ? colors.btnBg : colors.border}`,
+                      backgroundColor: draftStatus === status ? colors.btnBg : 'transparent',
+                      color: draftStatus === status ? colors.btnText : colors.text,
                       cursor: 'pointer',
                       fontSize: '12px',
-                      fontWeight: selectedStatus === status ? '600' : '500',
+                      fontWeight: draftStatus === status ? '600' : '500',
                       transition: 'all 0.2s',
                       textTransform: 'capitalize',
                     }}
@@ -1248,16 +1432,16 @@ const TransactionsList = () => {
                 {sourceOptions.map((source) => (
                   <button
                     key={source}
-                    onClick={() => setSelectedSource(source)}
+                    onClick={() => setDraftSource(source)}
                     style={{
                       padding: '6px 14px',
                       borderRadius: '8px',
-                      border: `2px solid ${selectedSource === source ? colors.btnBg : colors.border}`,
-                      backgroundColor: selectedSource === source ? colors.btnBg : 'transparent',
-                      color: selectedSource === source ? colors.btnText : colors.text,
+                      border: `2px solid ${draftSource === source ? colors.btnBg : colors.border}`,
+                      backgroundColor: draftSource === source ? colors.btnBg : 'transparent',
+                      color: draftSource === source ? colors.btnText : colors.text,
                       cursor: 'pointer',
                       fontSize: '12px',
-                      fontWeight: selectedSource === source ? '600' : '500',
+                      fontWeight: draftSource === source ? '600' : '500',
                       transition: 'all 0.2s',
                       textTransform: 'capitalize',
                     }}
@@ -1276,10 +1460,9 @@ const TransactionsList = () => {
             }}>
               <button
                 onClick={() => {
-                  setSelectedType('ALL');
-                  setSelectedStatus('ALL');
-                  setSelectedSource('ALL');
-                  setSearchQuery('');
+                  setDraftType('ALL');
+                  setDraftStatus('ALL');
+                  setDraftSource('ALL');
                 }}
                 style={{
                   flex: 1,
@@ -1300,6 +1483,9 @@ const TransactionsList = () => {
               </button>
               <button
                 onClick={() => {
+                  setSelectedType(draftType);
+                  setSelectedStatus(draftStatus);
+                  setSelectedSource(draftSource);
                   setShowFilterModal(false);
                   setPagination(prev => ({ ...prev, page: 1 }));
                 }}

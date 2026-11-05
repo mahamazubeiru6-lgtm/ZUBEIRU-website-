@@ -163,7 +163,7 @@ const Notices = () => {
     }, [notices, selectedPriority, selectedTarget, searchQuery]);
 
     const priorities = ['ALL', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
-    const targets = ['ALL', 'ALL', 'AGENTS', 'SUB_AGENTS', 'CUSTOMERS', 'AGENTS_AND_SUB'];
+    const targets = ['ALL', 'AGENTS', 'SUB_AGENTS', 'CUSTOMERS', 'AGENTS_AND_SUB'];
 
     const handleClearFilters = () => {
         setSearchQuery('');

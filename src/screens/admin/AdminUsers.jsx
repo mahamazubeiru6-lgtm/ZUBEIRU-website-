@@ -51,7 +51,8 @@ const STATUS_OPTIONS = [
 
 const PAGE_SIZES = [10, 25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 400;
-const EAGER_FETCH_PAGE_CAP = 20;
+const EAGER_FETCH_PAGE_SIZE = 200;
+const EAGER_FETCH_PAGE_CAP = 5;
 
 const ROLE_COLORS = {
   ADMIN: "#EF4444",
@@ -192,6 +193,16 @@ const AdminUsers = () => {
         : "INACTIVE"
       : selectedStatus;
   const effectiveFreeText = parsedSearch.freeText;
+  const freeTextTokens = useMemo(
+    () => effectiveFreeText.split(/\s+/).filter(Boolean),
+    [effectiveFreeText]
+  );
+  const useServerSearch = Boolean(
+    effectiveFreeText &&
+      freeTextTokens.length === 1 &&
+      !/^\+?[\d\s().-]+$/.test(effectiveFreeText)
+  );
+  const useClientFullSearch = Boolean(effectiveFreeText && !useServerSearch);
 
   
   const [fullSet, setFullSet] = useState(null);
@@ -206,12 +217,18 @@ const AdminUsers = () => {
   
   const abortRef = useRef(null);
   const fullAbortRef = useRef(null);
+  const fullRequestIdRef = useRef(0);
 
   
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    fullAbortRef.current?.abort();
   }, []);
 
   
@@ -236,6 +253,7 @@ const AdminUsers = () => {
             effectiveActive === "ACTIVE" ? "true" : "false"
           );
         }
+        if (useServerSearch) params.set("search", effectiveFreeText);
 
         const res = await authFetch(
           `/accounts/users/?${params.toString()}`,
@@ -266,6 +284,8 @@ const AdminUsers = () => {
       sortOrder,
       effectiveRole,
       effectiveActive,
+      effectiveFreeText,
+      useServerSearch,
     ]
   );
 
@@ -273,15 +293,21 @@ const AdminUsers = () => {
   const fetchAllPages = useCallback(async () => {
     if (fullSetKeyRef.current === fullSetKey && fullSet) return;
 
+    if (fullSetKeyRef.current !== fullSetKey) {
+      fullSetKeyRef.current = "";
+      setFullSet(null);
+    }
+
     if (fullAbortRef.current) fullAbortRef.current.abort();
     const controller = new AbortController();
     fullAbortRef.current = controller;
+    const requestId = ++fullRequestIdRef.current;
 
     setFullFetching(true);
 
     try {
       const baseParams = new URLSearchParams();
-      baseParams.set("page_size", String(pageSize));
+      baseParams.set("page_size", String(EAGER_FETCH_PAGE_SIZE));
       baseParams.set(
         "ordering",
         sortOrder === "desc" ? `-${sortBy}` : sortBy
@@ -323,25 +349,28 @@ const AdminUsers = () => {
             { signal: controller.signal }
           );
           const d = await res.json();
-          return res.ok ? d.data || [] : [];
+          if (!res.ok) {
+            throw new Error(readApiError(d, `Failed to load user page ${p}`));
+          }
+          return d.data || [];
         })
       );
 
       const all = [firstData.data || [], ...results].flat();
+      if (fullRequestIdRef.current !== requestId) return;
       setFullSet({ data: all, truncated });
       fullSetKeyRef.current = fullSetKey;
     } catch (err) {
       if (err.name === "AbortError") return;
       showToast(err.message || "Failed to load all pages", "error");
     } finally {
-      setFullFetching(false);
+      if (fullRequestIdRef.current === requestId) setFullFetching(false);
     }
   }, [
     authFetch,
     showToast,
     fullSet,
     fullSetKey,
-    pageSize,
     sortBy,
     sortOrder,
     effectiveRole,
@@ -355,20 +384,27 @@ const AdminUsers = () => {
 
   
   useEffect(() => {
-    if (!effectiveFreeText) fetchUsers();
-  }, [fetchUsers, effectiveFreeText]);
+    if (!useClientFullSearch) fetchUsers();
+  }, [fetchUsers, useClientFullSearch]);
 
   useEffect(() => {
-    if (effectiveFreeText && !fullFetching) fetchAllPages();
-  }, [effectiveFreeText, fullSetKey]);
+    if (useClientFullSearch) fetchAllPages();
+  }, [useClientFullSearch, fullSetKey]);
 
   
   useEffect(() => {
-    if (!effectiveFreeText) {
+    if (!useClientFullSearch) {
       setFullSet(null);
       fullSetKeyRef.current = "";
     }
-  }, [effectiveRole, effectiveActive, sortBy, sortOrder, pageSize]);
+  }, [
+    useClientFullSearch,
+    effectiveRole,
+    effectiveActive,
+    sortBy,
+    sortOrder,
+    pageSize,
+  ]);
 
   
   const isFirstRender = useRef(true);
@@ -378,13 +414,20 @@ const AdminUsers = () => {
       return;
     }
     setPage(1);
-  }, [effectiveRole, effectiveActive, sortBy, sortOrder, pageSize]);
+  }, [
+    effectiveRole,
+    effectiveActive,
+    effectiveFreeText,
+    sortBy,
+    sortOrder,
+    pageSize,
+  ]);
 
   
-  const sourceList = effectiveFreeText ? fullSet?.data || [] : users;
+  const sourceList = useClientFullSearch ? fullSet?.data || [] : users;
 
   const filteredUsers = useMemo(() => {
-    const q = effectiveFreeText;
+    const q = useClientFullSearch ? effectiveFreeText : "";
     if (!q) return sourceList;
     const tokens = q.split(/\s+/).filter(Boolean);
     return sourceList.filter((u) => {
@@ -400,7 +443,7 @@ const AdminUsers = () => {
         .toLowerCase();
       return tokens.every((t) => hay.includes(t));
     });
-  }, [sourceList, effectiveFreeText]);
+  }, [sourceList, effectiveFreeText, useClientFullSearch]);
 
   
   const toggleUserStatus = async (user) => {
@@ -513,8 +556,8 @@ const AdminUsers = () => {
   }
 
   const searchActive = !!effectiveFreeText;
-  const showSearchLoading = searchActive && fullFetching && !fullSet;
-  const displayedCount = searchActive ? filteredUsers.length : users.length;
+  const showSearchLoading = useClientFullSearch && fullFetching && !fullSet;
+  const displayedCount = filteredUsers.length;
 
   return (
     <div style={styles.pageWrap}>
@@ -670,7 +713,7 @@ const AdminUsers = () => {
       
       <div style={styles.resultBar(colors)}>
         <span>
-          {searchActive ? (
+          {useClientFullSearch ? (
             <>
               Showing{" "}
               <strong style={{ color: colors.heading }}>
@@ -681,9 +724,19 @@ const AdminUsers = () => {
                 <span style={{ color: colors.warning }}>
                   {" "}
                   · limited to first{" "}
-                  {EAGER_FETCH_PAGE_CAP * pageSize}
+                  {EAGER_FETCH_PAGE_CAP * EAGER_FETCH_PAGE_SIZE}
                 </span>
               )}
+            </>
+          ) : searchActive ? (
+            <>
+              Showing{" "}
+              <strong style={{ color: colors.heading }}>
+                {displayedCount}
+              </strong>{" "}
+              of{" "}
+              <strong style={{ color: colors.heading }}>{totalCount}</strong>{" "}
+              matching user{totalCount === 1 ? "" : "s"}
             </>
           ) : (
             <>
@@ -698,7 +751,7 @@ const AdminUsers = () => {
               user{totalCount === 1 ? "" : "s"}
             </>
           )}
-          {(parsedSearch.role || parsedSearch.isActive !== null) && (
+          {(useServerSearch || parsedSearch.role || parsedSearch.isActive !== null) && (
             <span style={{ color: colors.secondaryText }}>
               {" "}
               · filtered by server
@@ -727,11 +780,11 @@ const AdminUsers = () => {
       </div>
 
       
-      {searchActive && fullSet?.truncated && (
+      {useClientFullSearch && fullSet?.truncated && (
         <div style={styles.hintBanner(colors)}>
           <Sparkles size={14} color={colors.warning} />
           <span style={{ flex: 1, fontSize: 12, color: colors.text }}>
-            Search scanned the first {EAGER_FETCH_PAGE_CAP * pageSize} users.
+            Search scanned the first {EAGER_FETCH_PAGE_CAP * EAGER_FETCH_PAGE_SIZE} users.
             Narrow with a role or status filter to search more.
           </span>
           <button
@@ -791,7 +844,7 @@ const AdminUsers = () => {
       )}
 
       
-      {!searchActive && totalPages > 1 && (
+      {!useClientFullSearch && totalPages > 1 && (
         <Pagination
           colors={colors}
           page={page}

@@ -5,6 +5,24 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useToast } from '../../providers/ToastProvider';
 import { ArrowLeft, User, Mail, Phone, Calendar, Wallet, Store, ShoppingBag, CheckCircle, AlertCircle, Clock, Activity, Users, Edit2, RefreshCw, Download, DollarSign, FileText, CreditCard, ArrowUpDown, Plus, X, Save, BarChart3, Truck } from 'lucide-react';
 
+const toPricingOverride = (pricing, packages = []) => {
+  const pkg = packages.find((item) => item.id === pricing.package);
+  return {
+    id: pricing.package,
+    network: pricing.package_name || pkg?.network,
+    size_gb: pricing.package_size || pkg?.size_gb,
+    base_price_agent: pkg?.base_price_agent || pricing.base_price_agent || 0,
+    admin_custom_price: pricing.price,
+    has_custom: true,
+    pricing_id: pricing.id,
+    price: pricing.price,
+    notes: pricing.notes || '',
+    price_type: pricing.price_type,
+    created_at: pricing.created_at,
+    updated_at: pricing.updated_at,
+  };
+};
+
 const AdminUserDetails = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
@@ -16,6 +34,8 @@ const AdminUserDetails = () => {
   const [userData, setUserData] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [transactionCount, setTransactionCount] = useState(0);
+  const [orderCount, setOrderCount] = useState(0);
   const [subAgents, setSubAgents] = useState([]);
   const [pricingOverrides, setPricingOverrides] = useState([]);
   const [allPackages, setAllPackages] = useState([]);
@@ -50,95 +70,94 @@ const AdminUserDetails = () => {
   }, [userId]);
 
   useEffect(() => {
-    if (orders.length > 0) {
-      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const today = new Date();
-      const weekData = {};
-
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        const dayName = days[date.getDay()];
-        const dateStr = date.toISOString().split('T')[0];
-        weekData[dateStr] = {
-          day: dayName,
-          date: dateStr,
-          count: 0,
-          revenue: 0,
-          profit: 0,
-        };
-      }
-
-      orders.forEach(order => {
-        const dateStr = order.created_at?.split('T')[0] || '';
-        if (weekData[dateStr]) {
-          weekData[dateStr].count += 1;
-          weekData[dateStr].revenue += parseFloat(order.customer_price || order.amount || 0);
-          weekData[dateStr].profit += parseFloat(order.agent_profit || 0);
-        }
-      });
-
-      const chartDataArray = Object.values(weekData);
-      const labels = chartDataArray.map(d => d.day);
-      const revenueData = chartDataArray.map(d => d.revenue);
-      const profitData = chartDataArray.map(d => d.profit);
-      const ordersData = chartDataArray.map(d => d.count);
-
-      setChartData({
-        labels: labels,
-        revenue: revenueData,
-        profit: profitData,
-        orders: ordersData,
-        summary: {
-          total_orders: orders.length,
-          total_revenue: orders.reduce((sum, o) => sum + parseFloat(o.customer_price || o.amount || 0), 0),
-          total_profit: orders.reduce((sum, o) => sum + parseFloat(o.agent_profit || 0), 0),
-        }
-      });
-
-      setTimeout(() => setAnimating(true), 300);
-    }
-  }, [orders]);
+    if (allPackages.length === 0) return;
+    setPricingOverrides((current) => current.map((pricing) => ({
+      ...pricing,
+      base_price_agent: allPackages.find((pkg) => pkg.id === pricing.id)?.base_price_agent
+        || pricing.base_price_agent,
+    })));
+  }, [allPackages]);
 
   const fetchUserDetails = async () => {
     try {
       setLoading(true);
       setAnimating(false);
+      setTransactions([]);
+      setOrders([]);
+      setTransactionCount(0);
+      setOrderCount(0);
+      setChartData(null);
+      setSubAgents([]);
+      setPricingOverrides([]);
+      setAllPackages([]);
 
-      const userResponse = await authFetch(`/accounts/users/${userId}/`);
-      const userData = await userResponse.json();
+      const [userResponse, txResponse, orderResponse] = await Promise.all([
+        authFetch(`/accounts/users/${userId}/`),
+        authFetch(`/accounts/transactions/?user=${userId}&page_size=20`),
+        authFetch(`/data/orders/?customer=${userId}&page_size=20`),
+      ]);
+      const [userPayload, txData, orderData] = await Promise.all([
+        userResponse.json(),
+        txResponse.json(),
+        orderResponse.json(),
+      ]);
 
-      if (!userResponse.ok || userData.status !== 'success') {
-        showToast(userData.message || 'Failed to fetch user details', 'error');
+      if (!userResponse.ok || userPayload.status !== 'success') {
+        showToast(userPayload.message || 'Failed to fetch user details', 'error');
         navigate('/admin/users');
         return;
       }
 
-      setUserData(userData.data);
-
-      const txResponse = await authFetch(`/accounts/transactions/?user=${userId}`);
-      const txData = await txResponse.json();
+      setUserData(userPayload.data);
       if (txResponse.ok && txData.status === 'success') {
         setTransactions(txData.data || []);
+        setTransactionCount(txData.count || 0);
       }
 
-      const orderResponse = await authFetch(`/data/orders/?customer=${userId}`);
-      const orderData = await orderResponse.json();
       if (orderResponse.ok && orderData.status === 'success') {
         setOrders(orderData.data || []);
+        setOrderCount(orderData.count || 0);
       }
 
-      if (userData.data.role === 'AGENT') {
-        const subAgentResponse = await authFetch(`/accounts/agents/${userId}/sub-agents/`);
-        const subAgentData = await subAgentResponse.json();
-        if (subAgentResponse.ok && subAgentData.status === 'success') {
-          setSubAgents(subAgentData.data?.sub_agents || []);
-        }
+      if (
+        txResponse.ok && txData.status === 'success' &&
+        orderResponse.ok && orderData.status === 'success' &&
+        orderData.weekly?.data
+      ) {
+        const transactionDays = new Map(
+          (txData.weekly?.data || []).map((day) => [day.date, day])
+        );
+        const days = orderData.weekly.data;
+        const profit = days.map((day) => (
+          parseFloat(transactionDays.get(day.date)?.commissions || 0)
+        ));
+
+        setChartData({
+          labels: days.map((day) => day.day),
+          revenue: days.map((day) => parseFloat(day.revenue || 0)),
+          profit,
+          orders: days.map((day) => day.count || 0),
+          summary: {
+            total_orders: orderData.weekly.total_orders || 0,
+            total_revenue: parseFloat(orderData.weekly.total_revenue || 0),
+            total_profit: profit.reduce((sum, value) => sum + value, 0),
+          },
+        });
+        setTimeout(() => setAnimating(true), 300);
       }
 
-      if (userData.data.role === 'AGENT') {
-        await fetchPricingOverrides();
-        await fetchAllPackages();
+      if (userPayload.data.role === 'AGENT') {
+        await Promise.allSettled([
+          authFetch(`/accounts/agents/${userId}/sub-agents/`)
+            .then(async (response) => ({ response, data: await response.json() }))
+            .then(({ response, data }) => {
+              if (response.ok && data.status === 'success') {
+                setSubAgents(data.data?.sub_agents || []);
+              }
+            }),
+          fetchPricingOverrides(),
+          fetchAllPackages(),
+        ]);
       }
 
     } catch (error) {
@@ -154,7 +173,7 @@ const AdminUserDetails = () => {
       const response = await authFetch('/data/packages/?is_active=true');
       const data = await response.json();
       if (response.ok && data.status === 'success') {
-        setAllPackages(data.data || []);
+        setAllPackages((data.data || []).filter((pkg) => pkg.is_active));
       }
     } catch (error) {
       console.error('Error fetching packages:', error);
@@ -163,24 +182,26 @@ const AdminUserDetails = () => {
 
   const fetchPricingOverrides = async () => {
     try {
-      const response = await authFetch(`/data/pricing/?user=${userId}&price_type=ADMIN_AGENT_CUSTOM`);
+      const baseUrl = `/data/pricing/?user=${userId}&price_type=ADMIN_AGENT_CUSTOM&page_size=200`;
+      const response = await authFetch(baseUrl);
       const data = await response.json();
 
       if (response.ok && data.status === 'success') {
-        const transformedData = data.data.map(pricing => ({
-          id: pricing.package,
-          network: pricing.package_name,
-          size_gb: pricing.package_size,
-          base_price_agent: pricing.base_price_agent || 0,
-          admin_custom_price: pricing.price,
-          has_custom: true,
-          pricing_id: pricing.id,
-          price: pricing.price,
-          notes: pricing.notes || '',
-          price_type: pricing.price_type,
-          created_at: pricing.created_at,
-          updated_at: pricing.updated_at,
+        const remainingPages = Array.from(
+          { length: Math.max(0, (data.total_pages || 1) - 1) },
+          (_, index) => index + 2
+        );
+        const remainingResults = await Promise.all(remainingPages.map(async (page) => {
+          const pageResponse = await authFetch(`${baseUrl}&page=${page}`);
+          const pageData = await pageResponse.json();
+          if (!pageResponse.ok || pageData.status !== 'success') {
+            throw new Error(pageData.message || `Failed to load pricing page ${page}`);
+          }
+          return pageData.data || [];
         }));
+        const transformedData = [data.data || [], ...remainingResults]
+          .flat()
+          .map((pricing) => toPricingOverride(pricing, allPackages));
         setPricingOverrides(transformedData);
       }
     } catch (error) {
@@ -208,7 +229,11 @@ const AdminUserDetails = () => {
 
         if (response.ok && data.status === 'success') {
           showToast('Custom price updated successfully', 'success');
-          fetchPricingOverrides();
+          setPricingOverrides((current) => current.map((pricing) => (
+            pricing.pricing_id === data.data.id
+              ? toPricingOverride(data.data, allPackages)
+              : pricing
+          )));
           setIsEditingPrice(false);
           setEditingPrice(null);
           setNewPrice('');
@@ -232,7 +257,10 @@ const AdminUserDetails = () => {
 
         if (response.status === 201 && data.status === 'success') {
           showToast('Custom price set successfully', 'success');
-          fetchPricingOverrides();
+          setPricingOverrides((current) => [
+            toPricingOverride(data.data, allPackages),
+            ...current,
+          ]);
           setIsEditingPrice(false);
           setEditingPrice(null);
           setNewPrice('');
@@ -266,7 +294,9 @@ const AdminUserDetails = () => {
 
       if (response.ok && data.status === 'success') {
         showToast('Custom price removed successfully', 'success');
-        fetchPricingOverrides();
+        setPricingOverrides((current) => current.filter((pricing) => (
+          pricing.pricing_id !== pkg.pricing_id
+        )));
       } else {
         showToast(data.message || 'Failed to remove custom price', 'error');
       }
@@ -303,7 +333,10 @@ const AdminUserDetails = () => {
         setSelectedPackageForPricing(null);
         setCustomPriceValue('');
         setCustomPriceNotes('');
-        fetchPricingOverrides();
+        setPricingOverrides((current) => [
+          toPricingOverride(data.data, allPackages),
+          ...current,
+        ]);
       } else {
         if (data.errors) {
           const firstError = Object.values(data.errors)[0];
@@ -599,8 +632,8 @@ const AdminUserDetails = () => {
 
   const tabs = [
     { id: 'overview', label: isMobile ? 'Info' : 'Overview', icon: <User size={16} /> },
-    { id: 'orders', label: isMobile ? 'Orders' : 'Orders', icon: <ShoppingBag size={16} />, count: orders.length },
-    { id: 'transactions', label: isMobile ? 'Txns' : 'Transactions', icon: <Activity size={16} />, count: transactions.length },
+    { id: 'orders', label: isMobile ? 'Orders' : 'Orders', icon: <ShoppingBag size={16} />, count: orderCount },
+    { id: 'transactions', label: isMobile ? 'Txns' : 'Transactions', icon: <Activity size={16} />, count: transactionCount },
     ...(isAgent ? [{ id: 'subagents', label: isMobile ? 'Sub Agents' : 'Sub Agents', icon: <Users size={16} />, count: subAgents.length }] : []),
     ...(isAgent ? [{ id: 'pricing', label: isMobile ? 'Pricing' : 'Pricing Overrides', icon: <DollarSign size={16} />, count: pricingOverrides.length }] : []),
     { id: 'profile', label: isMobile ? 'Profile' : 'Profile', icon: <FileText size={16} /> },
@@ -855,7 +888,7 @@ const AdminUserDetails = () => {
       </div>
 
       
-      {chartData && orders.length > 0 && (
+      {chartData && chartData.summary.total_orders > 0 && (
         <div style={{
           backgroundColor: colors.raisedBg,
           borderRadius: isMobile ? '10px' : '12px',
@@ -894,7 +927,7 @@ const AdminUserDetails = () => {
                 padding: isMobile ? '1px 6px' : '2px 10px',
                 borderRadius: '8px',
               }}>
-                {orders.length} orders
+                {chartData.summary.total_orders} this week
               </span>
             </div>
             {chartData?.summary && (
@@ -949,7 +982,7 @@ const AdminUserDetails = () => {
         }}>
           <div style={{ fontSize: isMobile ? '9px' : '11px', color: colors.secondaryText }}>Orders</div>
           <div style={{ fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#3B82F6' }}>
-            {orders.length}
+            {orderCount}
           </div>
         </div>
         <div style={{
@@ -960,7 +993,7 @@ const AdminUserDetails = () => {
         }}>
           <div style={{ fontSize: isMobile ? '9px' : '11px', color: colors.secondaryText }}>Transactions</div>
           <div style={{ fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#8B5CF6' }}>
-            {transactions.length}
+            {transactionCount}
           </div>
         </div>
         {isAgent && (
@@ -1303,7 +1336,9 @@ const AdminUserDetails = () => {
               alignItems: 'center',
             }}>
               <span style={{ fontWeight: '600', color: colors.heading }}>Order History</span>
-              <span style={{ fontSize: '13px', color: colors.secondaryText }}>{orders.length} orders</span>
+              <span style={{ fontSize: '13px', color: colors.secondaryText }}>
+                {orders.length} recent of {orderCount}
+              </span>
             </div>
             {orders.length > 0 ? (
               <div style={{ overflowX: 'auto' }}>
@@ -1408,7 +1443,9 @@ const AdminUserDetails = () => {
               alignItems: 'center',
             }}>
               <span style={{ fontWeight: '600', color: colors.heading }}>Transaction History</span>
-              <span style={{ fontSize: '13px', color: colors.secondaryText }}>{transactions.length} transactions</span>
+              <span style={{ fontSize: '13px', color: colors.secondaryText }}>
+                {transactions.length} recent of {transactionCount}
+              </span>
             </div>
             {transactions.length > 0 ? (
               <div style={{ overflowX: 'auto' }}>
@@ -2075,11 +2112,13 @@ const AdminUserDetails = () => {
                 }}
               >
                 <option value="">Select a package...</option>
-                {allPackages.map((pkg) => (
+                {allPackages
+                  .filter((pkg) => !pricingOverrides.some((pricing) => pricing.id === pkg.id))
+                  .map((pkg) => (
                   <option key={pkg.id} value={pkg.id}>
                     {pkg.network} - {pkg.size_gb}GB (Base: ₵{pkg.base_price_agent})
                   </option>
-                ))}
+                  ))}
               </select>
             </div>
 

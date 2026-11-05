@@ -197,7 +197,7 @@ const AdminDashboard = () => {
               break;
             case "packages": {
               const sorted = (r.data || [])
-                .filter((p) => p.sales_count > 0)
+                .filter((p) => p.is_active && p.sales_count > 0)
                 .sort(
                   (a, b) => (b.sales_count || 0) - (a.sales_count || 0)
                 )

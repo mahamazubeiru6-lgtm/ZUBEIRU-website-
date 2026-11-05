@@ -12,14 +12,20 @@
 .user-chip small { color: var(--secondaryText); font-size: 10px; text-transform: capitalize; }
 .sidebar { position: fixed; z-index: 50; top: var(--topbar-height); bottom: 0; left: 0; width: var(--sidebar-width); display: flex; flex-direction: column; padding: 18px 14px; background: var(--cardBg); border-right: 1px solid var(--border); transition: width .25s ease, transform .25s ease; }
 .sidebar nav { display: flex; flex: 1; flex-direction: column; gap: 5px; overflow-y: auto; }
+.store-context-card { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0 2px 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 13px; color: var(--btnBg); background: var(--subtleBg); }
+.store-context-card > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.store-context-card small { color: var(--secondaryText); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.store-context-card strong { overflow: hidden; color: var(--heading); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .nav-item { display: flex; align-items: center; gap: 12px; min-height: 45px; padding: 10px 13px; border-radius: 12px; color: var(--secondaryText); text-decoration: none; font-size: 13px; font-weight: 650; transition: .18s ease; }
 .nav-item:hover { color: var(--heading); background: var(--hoverBg); }
 .nav-item.active { color: var(--btnBg); background: var(--activeBg); box-shadow: inset 3px 0 0 var(--btnBg); }
+.own-store-link { color: var(--btnBg); background: var(--activeBg); }
 .collapse-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; border: 1px solid var(--border); border-radius: 12px; color: var(--secondaryText); background: var(--raisedBg); cursor: pointer; }
 .app-content { min-height: 100vh; margin-left: var(--sidebar-width); padding: calc(var(--topbar-height) + 26px) 28px 40px; transition: margin-left .25s ease; }
 .is-collapsed { --sidebar-width: 78px; }
 .is-collapsed .nav-item { justify-content: center; }
-.is-collapsed .nav-item span, .is-collapsed .collapse-button span { display: none; }
+.is-collapsed .nav-item span, .is-collapsed .collapse-button span, .is-collapsed .store-context-card span { display: none; }
+.is-collapsed .store-context-card { justify-content: center; padding-inline: 0; }
 .sidebar-mobile-head, .mobile-only { display: none; }
 .sidebar-scrim { display: none; }
 

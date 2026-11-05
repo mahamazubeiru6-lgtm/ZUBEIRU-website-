@@ -48,8 +48,17 @@ const SubAgentDashboard = () => {
             setLoading(true);
             setAnimating(false);
 
-            const statsResponse = await authFetch('/accounts/dashboard/stats/');
-            const statsData = await statsResponse.json();
+            const [statsResponse, ordersResponse, packagesResponse] = await Promise.all([
+                authFetch('/accounts/dashboard/stats/'),
+                authFetch('/data/orders/?page_size=5&ordering=-created_at'),
+                authFetch('/data/packages/'),
+            ]);
+            const [statsData, ordersData, packagesData] = await Promise.all([
+                statsResponse.json(),
+                ordersResponse.json(),
+                packagesResponse.json(),
+            ]);
+
             if (statsResponse.ok && statsData.status === 'success') {
                 setDashboardData(statsData.data);
                 setWalletBalance(parseFloat(statsData.data.wallet_balance || 0));
@@ -77,14 +86,10 @@ const SubAgentDashboard = () => {
                 }
             }
 
-            const ordersResponse = await authFetch('/data/orders/?page_size=5&ordering=-created_at');
-            const ordersData = await ordersResponse.json();
             if (ordersResponse.ok && ordersData.status === 'success') {
                 setRecentOrders(ordersData.data || []);
             }
 
-            const packagesResponse = await authFetch('/data/packages/');
-            const packagesData = await packagesResponse.json();
             if (packagesResponse.ok && packagesData.status === 'success') {
                 const transformedPackages = packagesData.data.map(pkg => ({
                     id: pkg.id,
@@ -183,7 +188,19 @@ const SubAgentDashboard = () => {
 
             if (response.ok && data.status === 'success') {
                 showToast('Package price updated successfully', 'success');
-                fetchDashboardData();
+                const price = Number(newPrice);
+                setPackages((current) => current.map((pkg) => (
+                    pkg.id === editingPackage.id
+                        ? {
+                            ...pkg,
+                            subAgentCustomerPrice: price,
+                            effectivePrice: price,
+                            priceSource: 'sub_agent_custom',
+                            hasCustomPrice: true,
+                            pricingId: data.data?.id || pkg.pricingId,
+                        }
+                        : pkg
+                )));
                 setShowEditModal(false);
                 setEditingPackage(null);
                 setNewPrice('');
@@ -218,7 +235,22 @@ const SubAgentDashboard = () => {
 
             if (response.ok && data.status === 'success') {
                 showToast('Custom price removed successfully', 'success');
-                fetchDashboardData();
+                setPackages((current) => current.map((item) => (
+                    item.id === pkg.id
+                        ? {
+                            ...item,
+                            subAgentCustomerPrice: null,
+                            effectivePrice: getAgentEffectivePrice(item),
+                            priceSource: item.agentSubCustomPrice
+                                ? 'agent_sub_custom'
+                                : item.agentSubBasePrice
+                                    ? 'agent_sub_base'
+                                    : 'base',
+                            hasCustomPrice: false,
+                            pricingId: null,
+                        }
+                        : item
+                )));
             } else {
                 showToast(data.message || 'Failed to remove custom price', 'error');
             }

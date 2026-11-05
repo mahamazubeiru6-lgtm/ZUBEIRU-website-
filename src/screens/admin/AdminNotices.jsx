@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import { Bell, Plus, Edit2, Trash2, Eye, EyeOff, RefreshCw, Search, X, AlertCircle, CheckCircle, Clock, Users, Tag, ChevronRight } from 'lucide-react';
 import { useNotices } from '../../hooks/useNotices';
@@ -7,7 +7,16 @@ import NoticeDeleteModal from '../../components/NoticeDeleteModal';
 
 const AdminNotices = () => {
     const { colors } = useTheme();
-    const { notices, loading, totalCount, fetchNotices, deleteNotice, toggleDisplay } = useNotices();
+    const {
+        notices,
+        loading,
+        totalCount,
+        fetchNotices,
+        createNotice,
+        updateNotice,
+        deleteNotice,
+        toggleDisplay,
+    } = useNotices();
 
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedPriority, setSelectedPriority] = useState('ALL');
@@ -30,25 +39,11 @@ const AdminNotices = () => {
         fetchNotices();
     }, []);
 
-    const handleSearch = () => {
-        fetchNotices({ search: searchQuery });
-    };
-
-    const handleFilterChange = () => {
-        const params = {};
-        if (searchQuery) params.search = searchQuery;
-        if (selectedPriority !== 'ALL') params.priority = selectedPriority;
-        if (selectedTarget !== 'ALL') params.target = selectedTarget;
-        if (selectedStatus !== 'ALL') params.status = selectedStatus;
-        fetchNotices(params);
-    };
-
     const handleClearFilters = () => {
         setSearchQuery('');
         setSelectedPriority('ALL');
         setSelectedTarget('ALL');
         setSelectedStatus('ALL');
-        fetchNotices();
     };
 
     const handleToggleDisplay = async (id) => {
@@ -64,6 +59,7 @@ const AdminNotices = () => {
 
     const getPriorityColor = (priority) => {
         const colors = {
+            'URGENT': { bg: '#DC262620', text: '#DC2626', label: 'Urgent' },
             'HIGH': { bg: '#EF444420', text: '#EF4444', label: 'High' },
             'MEDIUM': { bg: '#F59E0B20', text: '#F59E0B', label: 'Medium' },
             'LOW': { bg: '#3B82F620', text: '#3B82F6', label: 'Low' },
@@ -114,9 +110,46 @@ const AdminNotices = () => {
         return new Date(expiresAt) < new Date();
     };
 
-    const priorities = ['ALL', 'HIGH', 'MEDIUM', 'LOW'];
-    const targets = ['ALL', 'ALL', 'AGENTS', 'SUB_AGENTS', 'CUSTOMERS', 'AGENTS_AND_SUB'];
+    const priorities = ['ALL', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
+    const targets = ['ALL', 'AGENTS', 'SUB_AGENTS', 'CUSTOMERS', 'AGENTS_AND_SUB'];
     const statuses = ['ALL', 'ACTIVE', 'INACTIVE', 'EXPIRED'];
+
+    const filteredNotices = useMemo(() => {
+        const normalizedQuery = searchQuery.trim().toLowerCase();
+
+        return notices.filter((notice) => {
+            if (normalizedQuery) {
+                const searchableText = [
+                    notice.title,
+                    notice.message,
+                    notice.link_text,
+                    notice.link_url,
+                    notice.created_by_username,
+                    notice.target_label,
+                    notice.target,
+                ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase();
+
+                if (!searchableText.includes(normalizedQuery)) return false;
+            }
+
+            if (selectedPriority !== 'ALL' && notice.priority !== selectedPriority) return false;
+            if (selectedTarget !== 'ALL' && notice.target !== selectedTarget) return false;
+
+            if (selectedStatus !== 'ALL') {
+                const expired = Boolean(notice.expires_at) && new Date(notice.expires_at) < new Date();
+                const active = notice.is_active && notice.is_displayed && !expired;
+
+                if (selectedStatus === 'EXPIRED' && !expired) return false;
+                if (selectedStatus === 'ACTIVE' && !active) return false;
+                if (selectedStatus === 'INACTIVE' && (expired || active)) return false;
+            }
+
+            return true;
+        });
+    }, [notices, searchQuery, selectedPriority, selectedTarget, selectedStatus]);
 
     if (loading && notices.length === 0) {
         return (
@@ -330,7 +363,6 @@ const AdminNotices = () => {
                         placeholder={isMobile ? "Search..." : "Search notices..."}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                         style={{
                             width: '100%',
                             padding: isMobile ? '6px 32px 6px 32px' : '8px 40px 8px 40px',
@@ -359,7 +391,6 @@ const AdminNotices = () => {
                         <button
                             onClick={() => {
                                 setSearchQuery('');
-                                fetchNotices();
                             }}
                             style={{
                                 position: 'absolute',
@@ -391,10 +422,7 @@ const AdminNotices = () => {
                         }}>
                             <select
                                 value={selectedPriority}
-                                onChange={(e) => {
-                                    setSelectedPriority(e.target.value);
-                                    handleFilterChange();
-                                }}
+                                onChange={(e) => setSelectedPriority(e.target.value)}
                                 style={{
                                     padding: '4px 28px 4px 10px',
                                     borderRadius: '6px',
@@ -430,10 +458,7 @@ const AdminNotices = () => {
                         }}>
                             <select
                                 value={selectedTarget}
-                                onChange={(e) => {
-                                    setSelectedTarget(e.target.value);
-                                    handleFilterChange();
-                                }}
+                                onChange={(e) => setSelectedTarget(e.target.value)}
                                 style={{
                                     padding: '4px 28px 4px 10px',
                                     borderRadius: '6px',
@@ -469,10 +494,7 @@ const AdminNotices = () => {
                         }}>
                             <select
                                 value={selectedStatus}
-                                onChange={(e) => {
-                                    setSelectedStatus(e.target.value);
-                                    handleFilterChange();
-                                }}
+                                onChange={(e) => setSelectedStatus(e.target.value)}
                                 style={{
                                     padding: '4px 28px 4px 10px',
                                     borderRadius: '6px',
@@ -527,8 +549,8 @@ const AdminNotices = () => {
                 fontSize: isMobile ? '12px' : '14px',
                 color: colors.secondaryText,
             }}>
-                Showing <strong style={{ color: colors.text }}>{notices.length}</strong> notice{notices.length !== 1 ? 's' : ''}
-                {totalCount > notices.length && ` of ${totalCount}`}
+                Showing <strong style={{ color: colors.text }}>{filteredNotices.length}</strong> notice{filteredNotices.length !== 1 ? 's' : ''}
+                {filteredNotices.length !== totalCount && ` of ${totalCount}`}
             </div>
 
             
@@ -567,7 +589,7 @@ const AdminNotices = () => {
                             <span style={{ textAlign: 'center' }}>Actions</span>
                         </div>
 
-                        {notices.length === 0 ? (
+                        {filteredNotices.length === 0 ? (
                             <div style={{
                                 padding: '40px 20px',
                                 textAlign: 'center',
@@ -577,7 +599,7 @@ const AdminNotices = () => {
                                 <p>No notices found</p>
                             </div>
                         ) : (
-                            notices.map((notice) => {
+                            filteredNotices.map((notice) => {
                                 const priorityColors = getPriorityColor(notice.priority);
                                 const expired = isExpired(notice.expires_at);
                                 const isActive = notice.is_active && notice.is_displayed && !expired;
@@ -815,7 +837,7 @@ const AdminNotices = () => {
                     width: '100%',
                     boxSizing: 'border-box',
                 }}>
-                    {notices.length === 0 ? (
+                    {filteredNotices.length === 0 ? (
                         <div style={{
                             backgroundColor: colors.raisedBg,
                             borderRadius: '10px',
@@ -828,7 +850,7 @@ const AdminNotices = () => {
                             <p style={{ fontSize: '14px' }}>No notices found</p>
                         </div>
                     ) : (
-                        notices.map((notice) => {
+                        filteredNotices.map((notice) => {
                             const priorityColors = getPriorityColor(notice.priority);
                             const expired = isExpired(notice.expires_at);
                             const isActive = notice.is_active && notice.is_displayed && !expired;
@@ -1028,10 +1050,11 @@ const AdminNotices = () => {
                     setEditingNotice(null);
                 }}
                 notice={editingNotice}
+                createNotice={createNotice}
+                updateNotice={updateNotice}
                 onSave={() => {
                     setShowCreateModal(false);
                     setEditingNotice(null);
-                    fetchNotices();
                 }}
             />
 

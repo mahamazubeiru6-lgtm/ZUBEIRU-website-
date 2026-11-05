@@ -6,7 +6,10 @@ import { useAuth } from "../providers/AuthProvider";
 export default function Home() {
   const { agent } = useAgentContext();
   const { user } = useAuth();
-  const title = agent?.shop_name || "Data that keeps you connected";
+  const title =
+    agent?.profile?.shop_name ||
+    agent?.agent?.shop_name ||
+    "Data that keeps you connected";
   return (
     <div className="home-page">
       <section className="hero-panel">

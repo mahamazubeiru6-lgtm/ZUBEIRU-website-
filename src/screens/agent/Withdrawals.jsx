@@ -107,10 +107,15 @@ const Withdrawals = () => {
 
             if (response.status === 201 && data.status === 'success') {
                 showToast(data.message || 'Withdrawal request submitted successfully!', 'success');
+                setWithdrawals((current) => [data.data, ...current]);
+                setSummary((current) => ({
+                    ...(current || {}),
+                    total_requests: (current?.total_requests || 0) + 1,
+                    total_pending: (current?.total_pending || 0) + 1,
+                    pending_amount: parseFloat(current?.pending_amount || 0) + parseFloat(data.data?.amount || 0),
+                }));
                 setShowRequestModal(false);
                 resetForm();
-                fetchWithdrawals();
-                fetchSummary();
             } else {
                 if (data.errors) {
                     setFormErrors(data.errors);
@@ -475,7 +480,7 @@ const Withdrawals = () => {
                     }}>
                         <div style={{ fontSize: isMobile ? '7px' : '9px', color: colors.secondaryText }}>Processing</div>
                         <div style={{ fontSize: isMobile ? '14px' : '18px', fontWeight: '700', color: '#3B82F6' }}>
-                            {summary.total_processing || 0}
+                            {summary.total_processing ?? withdrawals.filter((item) => item.status === 'PROCESSING').length}
                         </div>
                     </div>
                     <div style={{
