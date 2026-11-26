@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, Database, ShieldCheck, Store, UsersRound, Zap } from "lucide-react";
+import { ArrowRight, BadgeCheck, Database, Search, ShieldCheck, Store, UsersRound, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAgentContext } from "../hooks/useAgentContext";
 import { useAuth } from "../providers/AuthProvider";
@@ -19,6 +19,7 @@ export default function Home() {
           <p>Buy mobile data in a few steps, manage agent and sub-agent pricing, track orders and receive profits from one focused platform.</p>
           <div className="hero-actions">
             <Link className="button primary" to="/data">Browse data packages <ArrowRight size={18} /></Link>
+            <Link className="button secondary" to="/track-order">Track data order <Search size={17} /></Link>
             {!user && <Link className="button secondary" to="/register">Create an account</Link>}
           </div>
         </div>

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../../hooks/useTheme';
 import { useAuth } from '../../providers/AuthProvider';
 import { useToast } from '../../providers/ToastProvider';
-import { ArrowLeft, User, Phone, Users, CreditCard, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Loader2, Package, Wifi, Clock, Shield, Zap, Info, Lock, ArrowRight, Smartphone } from 'lucide-react';
+import { ArrowLeft, User, Phone, Users, CreditCard, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Loader2, Package, Wifi, Clock, Shield, Zap, Info, Lock, ArrowRight, Smartphone, WalletCards } from 'lucide-react';
 
 const DataPurchase = () => {
     const { id } = useParams();
@@ -24,6 +24,9 @@ const DataPurchase = () => {
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
     const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('paystack');
+    const [walletBalance, setWalletBalance] = useState(null);
+    const pendingOrder = useRef(null);
+    const purchaseInProgress = useRef(false);
     const [orderSummaryExpanded, setOrderSummaryExpanded] = useState(true);
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
@@ -77,6 +80,17 @@ const DataPurchase = () => {
         fetchRecipients();
     }, [authFetch, id, navigate, routedPackage, showToast]);
 
+    useEffect(() => {
+        let active = true;
+        authFetch('/accounts/wallet/')
+            .then((response) => response.ok ? response.json() : null)
+            .then((payload) => {
+                if (active) setWalletBalance(payload?.data?.balance ?? null);
+            })
+            .catch(() => {});
+        return () => { active = false; };
+    }, [authFetch]);
+
     const fetchRecipients = async () => {
         try {
             const response = await authFetch('/data/recipients/');
@@ -109,42 +123,46 @@ const DataPurchase = () => {
     };
 
     const handlePurchase = async () => {
-        if (!validateForm()) return;
+        if (purchaseInProgress.current || !validateForm()) return;
+        purchaseInProgress.current = true;
 
         try {
             setSubmitting(true);
 
             const orderPayload = {
                 package: id,
-                customer_price: packageData.price.toFixed(2),
                 recipient_name: recipientName || 'Customer',
                 recipient_phone: phoneNumber,
                 ...(saveRecipient && { save_recipient: true }),
             };
 
-            const orderResponse = await authFetch('/data/orders/', {
-                method: 'POST',
-                body: JSON.stringify(orderPayload),
-            });
+            const orderKey = JSON.stringify(orderPayload);
+            if (pendingOrder.current?.key !== orderKey) {
+                const orderResponse = await authFetch('/data/orders/', {
+                    method: 'POST',
+                    body: orderPayload,
+                });
+                const orderData = await orderResponse.json();
 
-            const orderData = await orderResponse.json();
-
-            if (!orderResponse.ok) {
-                if (orderData.errors) {
-                    const firstError = Object.values(orderData.errors)[0];
-                    showToast(Array.isArray(firstError) ? firstError[0] : firstError, 'error');
-                } else {
-                    showToast(orderData.message || 'Failed to create order', 'error');
+                if (!orderResponse.ok) {
+                    const firstError = Object.values(orderData.errors || {})[0];
+                    showToast(firstError?.[0] || orderData.message || 'Failed to create order', 'error');
+                    return;
                 }
+                pendingOrder.current = { key: orderKey, order: orderData.data.order };
+            }
+
+            const order = pendingOrder.current.order;
+            const orderPrice = Number(order.customer_price);
+            if (Number.isFinite(orderPrice) && orderPrice !== packageData.price) {
+                setPackageData((current) => ({ ...current, price: orderPrice, priceDisplay: `₵${orderPrice.toFixed(2)}` }));
+                showToast('The package price changed. Review the new total before paying.', 'warning');
                 return;
             }
 
-            const orderId = orderData.data.order.id;
-            showToast('Order created! Redirecting to payment...', 'success');
-
-            const paymentResponse = await authFetch(`/data/orders/${orderId}/pay/`, {
+            const paymentResponse = await authFetch(`/data/orders/${order.id}/pay/`, {
                 method: 'POST',
-                body: JSON.stringify({}),
+                body: { payment_method: selectedPaymentMethod },
             });
 
             const paymentData = await paymentResponse.json();
@@ -154,7 +172,12 @@ const DataPurchase = () => {
                 return;
             }
 
-            if (paymentData.data.authorization_url) {
+            if (selectedPaymentMethod === 'wallet') {
+                const payment = paymentData.data;
+                window.dispatchEvent(new CustomEvent('wallet-balance-updated', { detail: { balance: payment.wallet_balance } }));
+                showToast(paymentData.message, payment.order_status === 'FAILED' ? 'warning' : 'success');
+                navigate('/orders');
+            } else if (paymentData.data.authorization_url) {
                 window.location.href = paymentData.data.authorization_url;
             } else {
                 showToast('No payment URL received', 'error');
@@ -164,6 +187,7 @@ const DataPurchase = () => {
             console.error('Purchase error:', error);
             showToast('Network error. Please try again.', 'error');
         } finally {
+            purchaseInProgress.current = false;
             setSubmitting(false);
         }
     };
@@ -850,42 +874,29 @@ const DataPurchase = () => {
                     gap: isMobile ? '6px' : '10px',
                     flexWrap: 'wrap',
                 }}>
-                    <div style={{
-                        flex: 1,
-                        minWidth: isMobile ? '100px' : '140px',
-                        padding: isMobile ? '8px 12px' : '12px 16px',
-                        borderRadius: isMobile ? '8px' : '12px',
-                        border: `2px solid ${selectedPaymentMethod === 'paystack' ? colors.btnBg : colors.border}`,
-                        backgroundColor: selectedPaymentMethod === 'paystack' ? `${colors.btnBg}10` : 'transparent',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: isMobile ? '6px' : '10px',
-                    }}
-                    onClick={() => setSelectedPaymentMethod('paystack')}
-                    >
-                        <Lock size={isMobile ? 14 : 18} style={{ color: selectedPaymentMethod === 'paystack' ? colors.btnBg : colors.secondaryText }} />
-                        <div>
-                            <div style={{
-                                fontSize: isMobile ? '12px' : '13px',
-                                fontWeight: '600',
-                                color: colors.text,
-                            }}>
-                                Paystack
-                            </div>
-                            <div style={{
-                                fontSize: isMobile ? '9px' : '10px',
-                                color: colors.secondaryText,
-                            }}>
-                                Card, Mobile Money
-                            </div>
-                        </div>
-                        {selectedPaymentMethod === 'paystack' && (
-                            <CheckCircle size={isMobile ? 14 : 16} style={{ color: colors.btnBg, marginLeft: 'auto' }} />
-                        )}
-                    </div>
+                    {[
+                        { method: 'paystack', Icon: Lock, label: 'Paystack', detail: 'Card, Mobile Money' },
+                        { method: 'wallet', Icon: WalletCards, label: 'Wallet', detail: walletBalance === null ? 'Use your wallet balance' : `₵${Number(walletBalance).toFixed(2)} available` },
+                    ].map(({ method, Icon, label, detail }) => {
+                        const selected = selectedPaymentMethod === method;
+                        return (
+                            <button type="button" key={method} aria-pressed={selected} disabled={submitting}
+                                onClick={() => setSelectedPaymentMethod(method)} style={{
+                                    flex: 1, minWidth: 140, padding: isMobile ? '8px 12px' : '12px 16px',
+                                    borderRadius: 10, border: `2px solid ${selected ? colors.btnBg : colors.border}`,
+                                    background: selected ? colors.activeBg : 'transparent', color: colors.text,
+                                    display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', cursor: 'pointer',
+                                }}>
+                                <Icon size={17} color={selected ? colors.btnBg : colors.secondaryText} />
+                                <span><strong>{label}</strong><br /><small style={{ color: colors.secondaryText }}>{detail}</small></span>
+                                {selected && <CheckCircle size={16} color={colors.btnBg} style={{ marginLeft: 'auto' }} />}
+                            </button>
+                        );
+                    })}
                 </div>
+                {selectedPaymentMethod === 'wallet' && walletBalance !== null && Number(walletBalance) < packageData.price && (
+                    <p style={{ color: colors.secondaryText }}><Link to="/wallet">Add funds to your wallet</Link> or choose Paystack.</p>
+                )}
             </div>
 
             
@@ -972,7 +983,7 @@ const DataPurchase = () => {
                 ) : (
                     <>
                         <Lock size={isMobile ? 16 : 20} />
-                        Proceed to Payment
+                        {selectedPaymentMethod === 'wallet' ? 'Pay with Wallet' : 'Proceed to Payment'}
                         <ArrowRight size={isMobile ? 16 : 18} />
                     </>
                 )}
@@ -989,7 +1000,9 @@ const DataPurchase = () => {
                 gap: '4px',
             }}>
                 <Shield size={isMobile ? 12 : 14} color={colors.success} />
-                You will be redirected to Paystack to complete your payment securely
+                {selectedPaymentMethod === 'wallet'
+                    ? 'The package price will be deducted from your wallet.'
+                    : 'You will be redirected to Paystack to complete your payment securely'}
             </div>
 
             <style>{`

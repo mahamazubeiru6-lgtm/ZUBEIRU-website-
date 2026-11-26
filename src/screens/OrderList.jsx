@@ -9,6 +9,7 @@ import React, {
   useState,
 } from "react";
 import { useTheme } from "../hooks/useTheme";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../providers/AuthProvider";
 import { useToast } from "../providers/ToastProvider";
 import {
@@ -93,6 +94,9 @@ const getNetworkColor = (n) => {
 };
 const getStatusLabel = (s) =>
   s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "N/A";
+
+const canRetryOrder = (order) =>
+  order.status === "FAILED" && order.payment_status === "COMPLETED" && !order.refunded_at;
 
 const StatusIcon = ({ status, size = 14 }) => {
   const map = {
@@ -231,6 +235,9 @@ const OrdersList = () => {
   const { colors } = useTheme();
   const { user, authFetch } = useAuth();
   const { showToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const callbackOrder = searchParams.get("order");
+  const verifiedOrder = useRef(null);
 
   
   const [isMobile, setIsMobile] = useState(
@@ -462,6 +469,27 @@ const OrdersList = () => {
   useEffect(() => {
     if (!effectiveFreeText) fetchOrders();
   }, [fetchOrders, effectiveFreeText]);
+
+  useEffect(() => {
+    if (!callbackOrder || verifiedOrder.current === callbackOrder) return;
+    verifiedOrder.current = callbackOrder;
+    setSearchParams({}, { replace: true });
+    (async () => {
+      try {
+        const response = await authFetch(`/data/orders/${callbackOrder}/verify-payment/`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message || "Could not verify this payment.");
+        if (payload.data?.verified) {
+          showToast("Payment confirmed. Check your order for delivery status.", "success");
+          await fetchOrders({ silent: true });
+        } else {
+          showToast("Payment is not confirmed yet. Refresh your orders in a moment.", "info");
+        }
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    })();
+  }, [authFetch, callbackOrder, fetchOrders, setSearchParams, showToast]);
 
   
   useEffect(() => {
@@ -1182,7 +1210,6 @@ const DesktopTable = ({
           orders.map((order) => {
             const displayStatus = trackedStatuses[order.id] || order.status;
             const statusColor = getStatusColor(displayStatus);
-            const isFailed = order.status === "FAILED";
             const tracking = trackingOrderId === order.id;
             const retrying = retryingOrderId === order.id;
             return (
@@ -1316,7 +1343,7 @@ const DesktopTable = ({
                   >
                     <Eye size={14} />
                   </IconBtn>
-                  {isAdmin && isFailed && (
+                  {isAdmin && canRetryOrder(order) && (
                     <button
                       type="button"
                       onClick={() => onRetry(order.id)}
@@ -1360,7 +1387,6 @@ const MobileCard = ({
   onRetry,
 }) => {
   const statusColor = getStatusColor(displayStatus);
-  const isFailed = order.status === "FAILED";
   return (
     <div style={styles.mobileCard(colors)}>
       <div
@@ -1380,7 +1406,7 @@ const MobileCard = ({
           </div>
         </div>
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-          {isAdmin && isFailed && (
+          {isAdmin && canRetryOrder(order) && (
             <button
               type="button"
               onClick={onRetry}
@@ -1840,7 +1866,7 @@ const OrderDetailModal = ({
           >
             Close
           </button>
-          {isAdmin && order.status === "FAILED" && (
+          {isAdmin && canRetryOrder(order) && (
             <button
               type="button"
               onClick={onRetry}

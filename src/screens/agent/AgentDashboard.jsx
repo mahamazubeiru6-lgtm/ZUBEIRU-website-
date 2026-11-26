@@ -129,18 +129,20 @@ export default function AgentDashboard() {
       if (chartAnimTimer.current) clearTimeout(chartAnimTimer.current);
 
       try {
-        const [statsRes, pkgRes] = await Promise.all([
+        const [statsRes, pkgRes, ordersRes] = await Promise.all([
           authFetch("/accounts/dashboard/stats/"),
           authFetch("/data/packages/"),
+          authFetch("/data/orders/?page_size=6"),
           fetchSubAgentFee(),
         ]);
-        const [stats, pkgData] = await Promise.all([
+        const [stats, pkgData, orders] = await Promise.all([
           statsRes.json(),
           pkgRes.json(),
+          ordersRes.json(),
         ]);
 
         if (statsRes.ok && stats.status === "success") {
-          setDashboardData(stats.data);
+          setDashboardData({ ...stats.data, recentOrders: ordersRes.ok ? orders.data : [] });
           setWalletBalance(parseFloat(stats.data?.wallet_balance || 0));
         }
         if (pkgRes.ok && pkgData.status === "success") {
@@ -338,7 +340,7 @@ export default function AgentDashboard() {
   const totalProfit = parseFloat(agentStats.total_profit || 0);
   const totalOrders = agentStats.total_orders || 0;
   const totalSubAgents = agentStats.total_sub_agents || 0;
-  const pendingOrders = dashboardData?.pending_orders || 0;
+  const pendingOrders = agentStats.pending_orders || 0;
   const completedOrders = agentStats.completed_orders || 0;
   const shopName = agentStats.shop_name || "My Store";
   const storeUrl = agentStats.store_url || "";
@@ -540,7 +542,7 @@ export default function AgentDashboard() {
       )}
 
       
-      {dashboardData?.agent?.recent_orders?.length > 0 && (
+      {dashboardData?.recentOrders?.length > 0 && (
         <Card colors={colors}>
           <div style={styles.cardHeader}>
             <div style={styles.cardTitleRow}>
@@ -567,17 +569,17 @@ export default function AgentDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {dashboardData.agent.recent_orders.slice(0, 6).map((o) => (
+                {dashboardData.recentOrders.map((o) => (
                   <tr key={o.id} style={styles.tr(colors)}>
                     <td style={styles.td(colors)}>
                       <span style={styles.mono(colors)}>
                         #{o.id?.slice(0, 8) || "N/A"}
                       </span>
                     </td>
-                    <td style={styles.td(colors)}>{o.customer || "—"}</td>
+                    <td style={styles.td(colors)}>{o.customer?.username || o.customer_username || "—"}</td>
                     <td style={styles.td(colors)}>
                       <strong style={{ color: colors.heading }}>
-                        ₵{Number(o.amount || 0).toFixed(2)}
+                        ₵{Number(o.customer_price || 0).toFixed(2)}
                       </strong>
                     </td>
                     <td style={styles.td(colors)}>

@@ -46,7 +46,7 @@ const ROLE_LABELS = {
   CUSTOMER: "Customer",
 };
 
-const CHART_TABS = ["revenue", "profit", "orders", "users"];
+const CHART_TABS = ["revenue", "orders", "users"];
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const getStatusColor = (s) => STATUS_COLORS[s] || "#6B7280";
@@ -238,9 +238,9 @@ const AdminDashboard = () => {
   const parsedStats = useMemo(
     () => ({
       totalRevenue: parseFloat(adminStats.total_revenue || 0),
-      totalOrders: adminStats.total_transactions || 0,
+      totalOrders: adminStats.total_orders || 0,
       totalUsers: adminStats.total_users || 0,
-      totalProfit: parseFloat(adminStats.total_profit || 0),
+      completedOrders: adminStats.completed_orders || 0,
       pendingOrders: adminStats.pending_orders || 0,
       todayOrders: adminStats.today_orders || 0,
       totalAgents: adminStats.total_agents || 0,
@@ -260,14 +260,12 @@ const AdminDashboard = () => {
       return found ? found.value : 0;
     };
     const revenue = DAY_LABELS.map((d) => pick(weekly.revenue, d));
-    const profit = DAY_LABELS.map((d) => pick(weekly.profit, d));
     const orders = DAY_LABELS.map((d) => pick(weekly.orders, d));
     const users = DAY_LABELS.map((d) => pick(weekly.new_users, d));
 
     return {
       labels: DAY_LABELS,
       revenue,
-      profit,
       orders,
       users,
       summary: weekly.summary || {},
@@ -386,7 +384,7 @@ const AdminDashboard = () => {
           icon={<DollarSign size={isMobile ? 16 : 18} />}
           label="Revenue"
           value={`₵${parsedStats.totalRevenue.toLocaleString()}`}
-          change="+12.5%"
+          change="Completed data orders"
           positive
           color={colors.btnBg}
           colors={colors}
@@ -414,9 +412,9 @@ const AdminDashboard = () => {
         />
         <StatCard
           icon={<TrendingUp size={isMobile ? 16 : 18} />}
-          label="Profit"
-          value={`₵${parsedStats.totalProfit.toLocaleString()}`}
-          change="+8.2%"
+          label="Completed"
+          value={parsedStats.completedOrders}
+          change="Completed data orders"
           positive
           color="#10B981"
           colors={colors}
@@ -756,7 +754,6 @@ const ChartCard = memo(function ChartCard({
   const dataMap = useMemo(
     () => ({
       revenue: { data: chartData.revenue, color: colors.btnBg, label: "Revenue" },
-      profit: { data: chartData.profit, color: "#10B981", label: "Profit" },
       orders: { data: chartData.orders, color: "#F59E0B", label: "Orders" },
       users: { data: chartData.users, color: "#8B5CF6", label: "New Users" },
     }),

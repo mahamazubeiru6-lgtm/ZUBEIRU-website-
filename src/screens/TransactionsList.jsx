@@ -298,7 +298,7 @@ const TransactionsList = () => {
 
   const typeOptions = ['ALL', 'DEPOSIT', 'WITHDRAWAL', 'PURCHASE', 'REFUND', 'COMMISSION', 'TRANSFER', 'REGISTRATION_FEE'];
   const statusOptions = ['ALL', 'PENDING', 'COMPLETED', 'FAILED', 'CANCELLED'];
-  const sourceOptions = ['ALL', 'DATASELLING', 'MARKETPLACE', 'WALLET', 'REGISTRATION'];
+  const sourceOptions = ['ALL', 'DATASELLING', 'UTILITIES', 'MARKETPLACE', 'WALLET', 'REGISTRATION'];
 
   const visibleTransactions = useMemo(() => {
     if (!debouncedSearch) return transactions;

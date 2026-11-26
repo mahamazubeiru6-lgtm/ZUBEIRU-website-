@@ -63,11 +63,11 @@ const SubAgentDashboard = () => {
                 setDashboardData(statsData.data);
                 setWalletBalance(parseFloat(statsData.data.wallet_balance || 0));
 
-                const weeklyData = statsData.data.customer?.weekly;
+                const weeklyData = statsData.data.sub_agent?.weekly;
                 if (weeklyData) {
                     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-                    const spendingData = days.map(day => {
-                        const found = weeklyData.spending?.find(r => r.day === day);
+                    const revenueData = days.map(day => {
+                        const found = weeklyData.revenue?.find(r => r.day === day);
                         return found ? found.value : 0;
                     });
                     const ordersData = days.map(day => {
@@ -77,7 +77,8 @@ const SubAgentDashboard = () => {
 
                     setChartData({
                         labels: days,
-                        revenue: spendingData,
+                        revenue: revenueData,
+                        profit: days.map(day => weeklyData.profit?.find(row => row.day === day)?.value || 0),
                         orders: ordersData,
                         summary: weeklyData.summary || {}
                     });
@@ -332,19 +333,20 @@ const SubAgentDashboard = () => {
         return matchesSearch && matchesNetwork && pkg.isActive;
     });
 
-    const customerStats = dashboardData?.customer || {};
-    const totalRevenue = parseFloat(customerStats.total_spent || 0);
-    const totalOrders = customerStats.total_orders || 0;
-    const totalPurchases = customerStats.total_purchases || 0;
-    const pendingOrders = customerStats.pending_orders || 0;
-    const completedOrders = customerStats.completed_orders || 0;
-    const shopName = customerStats.shop_name || 'My Store';
+    const sellerStats = dashboardData?.sub_agent || {};
+    const totalRevenue = parseFloat(sellerStats.total_revenue || 0);
+    const totalProfit = parseFloat(sellerStats.total_profit || 0);
+    const totalOrders = sellerStats.total_orders || 0;
+    const pendingOrders = sellerStats.pending_orders || 0;
+    const completedOrders = sellerStats.completed_orders || 0;
+    const shopName = sellerStats.shop_name || 'My Store';
 
     const renderChart = () => {
         if (!chartData) return null;
 
         const dataMap = {
-            revenue: { data: chartData.revenue, color: colors.btnBg, label: 'Spending' },
+            revenue: { data: chartData.revenue, color: colors.btnBg, label: 'Revenue' },
+            profit: { data: chartData.profit, color: colors.success, label: 'Profit' },
             orders: { data: chartData.orders, color: '#F59E0B', label: 'Orders' },
         };
 
@@ -380,7 +382,7 @@ const SubAgentDashboard = () => {
                         display: 'flex',
                         gap: '2px',
                     }}>
-                        {['revenue', 'orders'].map((tab) => (
+                        {['revenue', 'profit', 'orders'].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveChartTab(tab)}
@@ -544,10 +546,10 @@ const SubAgentDashboard = () => {
                         fontSize: isMobile ? '12px' : '13px',
                     }}>
                         Welcome back, {user?.first_name || user?.username || 'Sub-Agent'}
-                        {dashboardData?.customer?.parent_agent && (
+                        {sellerStats.parent_agent && (
                             <span style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px', fontSize: '12px' }}>
                                 <Crown size={14} color={colors.warning} />
-                                Agent: {dashboardData.customer.parent_agent}
+                                Agent: {sellerStats.parent_agent}
                             </span>
                         )}
                     </p>
@@ -596,7 +598,7 @@ const SubAgentDashboard = () => {
                     icon={<TrendingUp size={isMobile ? 16 : 18} />}
                     label="Revenue"
                     value={`₵${totalRevenue.toFixed(2)}`}
-                    change="+12.5%"
+                    change="Completed data orders"
                     positive={true}
                     color={colors.btnBg}
                     colors={colors}
@@ -605,8 +607,8 @@ const SubAgentDashboard = () => {
                 <StatCard
                     icon={<DollarSign size={isMobile ? 16 : 18} />}
                     label="Profit"
-                    value={`₵${(totalRevenue - (dashboardData?.customer?.total_cost || 0)).toFixed(2) || '0.00'}`}
-                    change="+8.2%"
+                    value={`₵${totalProfit.toFixed(2)}`}
+                    change="Your completed-order margin"
                     positive={true}
                     color="#10B981"
                     colors={colors}
@@ -624,9 +626,9 @@ const SubAgentDashboard = () => {
                 />
                 <StatCard
                     icon={<Users size={isMobile ? 16 : 18} />}
-                    label="Customers"
-                    value={totalPurchases || 0}
-                    change="Active"
+                    label="Completed"
+                    value={completedOrders}
+                    change="Successful data orders"
                     positive={true}
                     color="#8B5CF6"
                     colors={colors}
@@ -719,7 +721,7 @@ const SubAgentDashboard = () => {
                             flexWrap: 'wrap',
                         }}>
                             <span>Orders: <strong style={{ color: colors.text }}>{chartData.summary.total_orders || 0}</strong></span>
-                            <span>Revenue: <strong style={{ color: colors.text }}>₵{(chartData.summary.total_spending || 0).toFixed(2)}</strong></span>
+                            <span>Revenue: <strong style={{ color: colors.text }}>₵{Number(chartData.summary.total_revenue || 0).toFixed(2)}</strong></span>
                         </div>
                     )}
                 </div>

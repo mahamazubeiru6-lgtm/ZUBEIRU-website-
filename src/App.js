@@ -34,6 +34,9 @@ const OrdersList = lazy(() => import("./screens/OrderList"));
 const TransactionsList = lazy(() => import("./screens/TransactionsList"));
 const DataScreen = lazy(() => import("./screens/data/DataScreen"));
 const DataPurchase = lazy(() => import("./screens/data/DataPurchase"));
+const TrackDataOrder = lazy(() => import("./screens/data/TrackDataOrder"));
+const UtilityServices = lazy(() => import("./screens/utilities/UtilityServices"));
+const Wallet = lazy(() => import("./screens/Wallet"));
 const AdminDashboard = lazy(() => import("./screens/admin/Admindashboard"));
 const AdminUsers = lazy(() => import("./screens/admin/AdminUsers"));
 const AdminUserDetails = lazy(() => import("./screens/admin/AdminUserDetails"));
@@ -138,6 +141,9 @@ function RoutedApp() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/data" element={<DataScreen />} />
+          <Route path="/track-order" element={<TrackDataOrder />} />
+          <Route path="/utilities" element={<UtilityServices />} />
+          <Route path="/wallet" element={<Protected><Wallet /></Protected>} />
           <Route
             path="/data/purchase/:id"
             element={

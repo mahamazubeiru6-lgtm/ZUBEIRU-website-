@@ -17,6 +17,7 @@ import {
   Moon,
   PackageOpen,
   ReceiptText,
+  Search,
   Share2,
   Store,
   Sun,
@@ -24,6 +25,7 @@ import {
   UsersRound,
   WalletCards,
   X,
+  Zap,
 } from "lucide-react";
 import { useAgentContext } from "../../hooks/useAgentContext";
 import { useTheme } from "../../hooks/useTheme";
@@ -33,8 +35,14 @@ import { useToast } from "../../providers/ToastProvider";
 const siteName = process.env.REACT_APP_SITE_NAME || "DataHub";
 
 function linksFor(user, { canUseRoleTools, canBecomeSubAgent }) {
-  const common = [
+  const shopping = [
     { to: "/data", label: "Buy data", icon: Database },
+    { to: "/utilities", label: "Bills & subscriptions", icon: Zap },
+    { to: "/track-order", label: "Track data order", icon: Search },
+  ];
+  const common = [
+    ...shopping,
+    { to: "/wallet", label: "Wallet", icon: WalletCards },
     { to: "/orders", label: "Data orders", icon: ReceiptText },
     { to: "/transactions", label: "Transactions", icon: CreditCard },
     { to: "/notices", label: "Notices", icon: Bell },
@@ -42,7 +50,7 @@ function linksFor(user, { canUseRoleTools, canBecomeSubAgent }) {
 
   if (!user) {
     return [
-      { to: "/data", label: "Buy data", icon: Database },
+      ...shopping,
       ...(canBecomeSubAgent
         ? [
             {

@@ -36,7 +36,7 @@ export function prepareAuthRequestOptions(
   requestOptions = {},
   { accessToken = null, subdomain = null } = {}
 ) {
-  const options = { ...requestOptions };
+  const { auth = true, ...options } = requestOptions;
   const headers = { ...(requestOptions.headers || {}) };
   const isFormData =
     typeof FormData !== "undefined" && options.body instanceof FormData;
@@ -45,7 +45,7 @@ export function prepareAuthRequestOptions(
   );
 
   if (subdomain) headers["X-Subdomain"] = subdomain;
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (auth && accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   // Django REST Framework needs an explicit media type for JSON request bodies.
   // FormData must remain unset so the browser can add its multipart boundary.
@@ -157,7 +157,7 @@ export function AuthProvider({ children }) {
       };
 
       let response = await execute(token);
-      if (response.status === 401 && localStorage.getItem("refresh_token")) {
+      if (requestOptions.auth !== false && response.status === 401 && localStorage.getItem("refresh_token")) {
         const refreshedToken = await refreshAccessToken();
         if (refreshedToken) {
           response = await execute(refreshedToken);
