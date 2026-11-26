@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../../hooks/useTheme';
 import { useAuth } from '../../providers/AuthProvider';
 import { useToast } from '../../providers/ToastProvider';
+import DeliverySpeed from '../../components/DeliverySpeed';
 import { ArrowLeft, User, Phone, Users, CreditCard, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Loader2, Package, Wifi, Clock, Shield, Zap, Info, Lock, ArrowRight, Smartphone, WalletCards } from 'lucide-react';
 
 const DataPurchase = () => {
@@ -61,7 +62,7 @@ const DataPurchase = () => {
                         priceDisplay: `₵${parseFloat(pkg.effective_price || pkg.base_price_customer).toFixed(2)}`,
                         originalPrice: pkg.base_price_customer ? parseFloat(pkg.base_price_customer) : null,
                         validity: '30 Days',
-                        description: pkg.description || 'High-speed data bundle with instant activation',
+                        description: pkg.description || 'High-speed data bundle',
                     });
                 } else {
                     showToast(data.message || 'Package not found', 'error');
@@ -441,6 +442,8 @@ const DataPurchase = () => {
             </div>
 
             
+            <DeliverySpeed network={packageData.network} networkLabel={networkConfig.label} />
+
             <div style={{
                 marginBottom: isMobile ? '14px' : '20px',
                 backgroundColor: colors.raisedBg,
@@ -925,17 +928,7 @@ const DataPurchase = () => {
                     color: colors.secondaryText,
                 }}>
                     <Clock size={isMobile ? 12 : 14} color={colors.warning} />
-                    Instant Delivery
-                </div>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontSize: isMobile ? '10px' : '12px',
-                    color: colors.secondaryText,
-                }}>
-                    <Shield size={isMobile ? 12 : 14} color={colors.linkColor} />
-                    100% Guaranteed
+                    Delivery tracking
                 </div>
             </div>
 

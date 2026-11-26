@@ -13,6 +13,7 @@ import {
   Smartphone,
   Truck,
 } from "lucide-react";
+import DeliverySpeed from "../../components/DeliverySpeed";
 import { useTheme } from "../../hooks/useTheme";
 import { useAuth } from "../../providers/AuthProvider";
 
@@ -235,6 +236,8 @@ const TrackDataOrder = () => {
           reference is exposed by this tracker.
         </span>
       </aside>
+
+      <DeliverySpeed />
 
       <style>{`@keyframes track-spin { to { transform: rotate(360deg); } }`}</style>
     </main>

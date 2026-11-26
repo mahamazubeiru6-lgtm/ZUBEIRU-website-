@@ -97,7 +97,7 @@ const DataScreen = () => {
                     priceDisplay: `₵${parseFloat(pkg.effective_price || pkg.base_price_customer).toFixed(2)}`,
                     originalPrice: pkg.base_price_customer ? parseFloat(pkg.base_price_customer) : null,
                     validity: '30 Days',
-                    description: pkg.description || 'High-speed data bundle with instant activation',
+                    description: pkg.description || 'High-speed data bundle',
                     popular: pkg.is_popular || false,
                     price_source: pkg.price_source || 'base',
                     is_active: pkg.is_active,
@@ -363,7 +363,7 @@ const DataScreen = () => {
                 }}>
                     {[
                         { icon: <Wifi size={isMobile ? 14 : 16} color={colors.linkColor} />, label: 'Networks', value: '3+' },
-                        { icon: <Clock size={isMobile ? 14 : 16} color={colors.warning} />, label: 'Instant Delivery', value: '24/7' },
+                        { icon: <Clock size={isMobile ? 14 : 16} color={colors.warning} />, label: 'Order tracking', value: 'Live' },
                         { icon: <Award size={isMobile ? 14 : 16} color={colors.success} />, label: 'Best Price', value: 'Guaranteed' },
                         { icon: <CheckCircle size={isMobile ? 14 : 16} color={colors.success} />, label: 'Reliable', value: '100%' },
                     ].map((stat, idx) => (
@@ -1026,7 +1026,7 @@ const DataScreen = () => {
                             gap: '6px',
                         }}>
                             <ShieldCheck size={isMobile ? 12 : 14} />
-                            Secure checkout • Instant delivery
+                            Secure checkout • Delivery tracking
                         </div>
                     </div>
                 </div>

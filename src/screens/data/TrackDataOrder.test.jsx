@@ -1,8 +1,9 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import TrackDataOrder from "./TrackDataOrder";
 
 const mockAuthFetch = jest.fn();
+const mockTrackRequest = jest.fn();
 const mockNavigate = jest.fn();
 
 jest.mock("react-router-dom", () => ({
@@ -36,12 +37,21 @@ const renderTracker = () => render(<TrackDataOrder />);
 
 describe("TrackDataOrder", () => {
   beforeEach(() => {
-    mockAuthFetch.mockReset();
+    mockTrackRequest.mockReset();
+    mockAuthFetch.mockClear();
+    mockAuthFetch.mockImplementation((path, options) => (
+      path === "/data/delivery-stats/"
+        ? Promise.resolve({
+            ok: true,
+            json: async () => ({ status: "success", data: [], as_of: "2026-11-24T10:02:00Z" }),
+          })
+        : mockTrackRequest(path, options)
+    ));
     mockNavigate.mockReset();
   });
 
   test("tracks a recent order with the public recipient endpoint", async () => {
-    mockAuthFetch.mockResolvedValue({
+    mockTrackRequest.mockResolvedValue({
       ok: true,
       json: async () => ({
         status: "success",
@@ -73,6 +83,7 @@ describe("TrackDataOrder", () => {
     fireEvent.click(screen.getByRole("button", { name: "Track order" }));
 
     await screen.findByRole("heading", { name: "Delivered" });
+    expect(screen.getByRole("heading", { name: "Live delivery speeds" })).toBeInTheDocument();
     expect(screen.getByText("Live update")).toBeInTheDocument();
     expect(screen.getByText("#ABC12345")).toBeInTheDocument();
     expect(mockAuthFetch).toHaveBeenCalledWith("/data/orders/track-recent/", {
@@ -83,7 +94,7 @@ describe("TrackDataOrder", () => {
   });
 
   test("shows a clear message when no recent order exists", async () => {
-    mockAuthFetch.mockResolvedValue({
+    mockTrackRequest.mockResolvedValue({
       ok: false,
       json: async () => ({
         status: "error",
@@ -114,6 +125,7 @@ describe("TrackDataOrder", () => {
     expect(
       screen.getByText("Enter a valid 10-digit Ghana phone number.")
     ).toBeInTheDocument();
-    await waitFor(() => expect(mockAuthFetch).not.toHaveBeenCalled());
+    await screen.findByText("No confirmed deliveries yet");
+    expect(mockTrackRequest).not.toHaveBeenCalled();
   });
 });
